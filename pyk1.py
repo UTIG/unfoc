@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/bin/env python2.7
 #
 # Dechirp the JPL and MIRS radars.
 #
@@ -169,7 +169,7 @@ def main(argv):
 
 ## Prepare to loop
 
-    StackCenter = int(numpy.fix((args.StackDepth/2+0.5)))
+    StackCenter = int(numpy.fix((args.IncoDepth/2+0.5)))
 
     idxinco = 0
     for Stacked in read_and_stack_RADnh3(args.InputName,args.ChannelNum,args.SweepLength,args.StackDepth):
@@ -191,9 +191,9 @@ def main(argv):
             Incoherent = numpy.mean(IncoherentStack, axis=0)
             # Get just the center phase
             if args.PhsName:
-                Phase = numpy.int32(PhsStack[...,StackCenter] * 16777216)
+                Phase = numpy.int32(PhsStack[StackCenter,...] * 16777216)
                 Phase.byteswap(True)
-                Phase.tofile(MagOutFD)
+                Phase.tofile(PhsOutFD)
 
             ScaledMag = numpy.int32(args.Scale * numpy.log10(Incoherent))
             ScaledMag.byteswap(True)
