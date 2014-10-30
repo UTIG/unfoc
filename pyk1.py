@@ -10,7 +10,15 @@ import argparse
 import struct
 import numpy
 from scipy import signal
-import matplotlib.pyplot as plt
+# Disable for production work (fewer dependencies)
+#import matplotlib.pyplot as plt
+
+################################################
+# Enable metadata index writing.  
+# This should normally be disabled only for legacy testing.
+# It does not make things slower to output this data.
+enable_meta_index=True
+################################################
 
 def cinterp(Data, index):
     r = (numpy.abs(Data[index-1]) + numpy.abs(Data[index+1])) / 2
@@ -95,11 +103,11 @@ def main(argv):
 # Only output a sweep if MaxDepth sweeps could be stacked.
     parser.add_argument('--MaxDepth', required=True, type=int)
 # Output only sweeps with centers on or after this sweep
-    parser.add_argument('--StartSweep', type=int)
+    parser.add_argument('--StartSweep', type=int, default=1)
 # Output only sweeps with centers before or on this sweep
     parser.add_argument('--EndSweep', type=int)
 # Output sweep samples starting with this one
-    parser.add_argument('--StartSamp', type=int)
+    parser.add_argument('--StartSamp', type=int, default=1)
 # Output sweep samples ending with this one
     parser.add_argument('--EndSamp', type=int)
 # Output scale default is 1000*dB
@@ -137,14 +145,14 @@ def main(argv):
     filter = numpy.hstack((numpy.zeros(From), hamming*2, numpy.zeros(args.truncSweepLength-2*To-1), numpy.zeros(hamming.size), numpy.zeros(From-1)))
 
 ## Filter Chirp
-
-    plt.plot(filter, range(0,filter.size))
+    # disable for production work
+    # plt.plot(filter, range(0,filter.size))
     Rchirp = numpy.multiply(Rchirp, filter)
 
 ## Open Input and Output files
 
     MetaOutFD = open(args.MetaName, 'w')
-    MetaOutFD.write('#MagName = "' + args.InputName + '"\n')
+    MetaOutFD.write('#InputName = "' + args.InputName + '"\n')
 
     MagOutFD = open(args.MagName, 'w')
     MetaOutFD.write('#MagName = "' + args.MagName + '"\n')
@@ -198,7 +206,8 @@ def main(argv):
             ScaledMag = numpy.int32(args.Scale * numpy.log10(Incoherent))
             ScaledMag.byteswap(True)
             ScaledMag.tofile(MagOutFD)
-            MetaOutFD.write(str(record) + "\n")
+            if (enable_meta_index):
+                MetaOutFD.write(str(record) + "\n")
             record=record+record_increment
 
 if __name__ == "__main__":
