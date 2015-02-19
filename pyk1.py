@@ -1,16 +1,76 @@
-#!/bin/env python2.7
+#!/usr/bin/env python
 #
+# Output file for pik1 (4-byte signed integer, network order)
 # Dechirp the JPL and MIRS radars.
 #
 # All output files are 4-byte network-order.
 #
+## TODO: remove queueing because cache misses cause it to be slow.
 
+
+import os
 import sys
 import argparse
-import struct
 import numpy
+import Queue
+import threading
+import logging
+import struct
+from collections import namedtuple
 from scipy import signal
-import matplotlib.pyplot as plt
+import cProfile
+
+from parse_channels import parse_channels
+
+################################################
+# Enable metadata index writing.  
+# This should normally be disabled only for legacy testing.
+# It does not make things slower to output this data.
+enable_meta_index=True
+################################################
+
+class IncoStackState:
+    """ This state is separated out from IncoStackFilter so we can use yield or as a functional call """
+    def __init__(self, StackDepth, truncSweepLength, bDoPhs=False):
+        self.StackDepth = StackDepth
+        self.IncoherentStack = StackState1(StackDepth, truncSweepLength, False) # magnitude
+        self.PhsStack        = StackState1(StackDepth, truncSweepLength, False) # phase
+        self.bDoPhs = bDoPhs
+        self.StackCenter = int(numpy.fix( (self.StackDepth/2+0.5) ))
+        
+    def dostack(self, Dechirped):
+        """ Trace is a complex, dechirped trace """
+        mag = self.IncoherentStack.dostack( numpy.abs( Dechirped[1] ) )
+        if self.bDoPhs:
+            phs = self.PhsStack.dostack( numpy.angle( Dechirped[1] ) )
+
+        if mag != None:
+            mag = numpy.mean( mag  , axis=0 )
+            if self.bDoPhs:
+                phs = phs[self.StackCenter,...]
+            else:
+                phs = None
+            return (Dechirped[0],mag, phs)
+
+class QueueSource:
+    """ Gets records from a python Queue to be used as an input to a filter """
+    def __init__(self, maxsize=0):
+        self.q = Queue.Queue(maxsize)
+        pass
+
+    def records(self):
+        """ yield records.  If records is None, then quit. """
+        while True:
+            item = self.q.get()
+            if item != None:
+                yield item
+                self.q.task_done()
+            else:
+                return
+
+    def put(self, item, block=True, timeout=None):
+        """ Add items to the queue for processing (to be returned by records() ) """ 
+        return self.q.put(item, block, timeout)
 
 def cinterp(Data, index):
     r = (numpy.abs(Data[index-1]) + numpy.abs(Data[index+1])) / 2
@@ -22,8 +82,7 @@ def cinterp(Data, index):
     Data[index] = r * (numpy.cos(theta) + 1j * numpy.sin(theta))
     return Data
 
-
-def denoise_and_dechirp(Stacked, Rchirp, blanking, truncSweepLength):
+def denoise_and_dechirp(Stacked, Rchirp, blanking, truncSweepLength, bDoCinterp = True):
     Stacked[0:blanking] = numpy.zeros(blanking)
 
 #find peak energy below blanking samples
@@ -33,12 +92,14 @@ def denoise_and_dechirp(Stacked, Rchirp, blanking, truncSweepLength):
     Stacked=numpy.roll(Stacked,-shifter);
         
     DFT = numpy.fft.fft(signal.detrend(Stacked))
-    # Remove five samples per cycle problem
-    DFT = cinterp(DFT, truncSweepLength * (1.0/5))
-    DFT = cinterp(DFT, truncSweepLength * (1 - 1.0/5))
-    # Remove the first harmonic for five samples
-    DFT = cinterp(DFT, truncSweepLength * (2.0/5))
-    DFT = cinterp(DFT, truncSweepLength * (1 - 2.0/5))
+
+    if bDoCinterp:
+        # Remove five samples per cycle problem
+        DFT = cinterp(DFT, truncSweepLength * (1.0/5))
+        DFT = cinterp(DFT, truncSweepLength * (1 - 1.0/5))
+        # Remove the first harmonic for five samples
+        DFT = cinterp(DFT, truncSweepLength * (2.0/5))
+        DFT = cinterp(DFT, truncSweepLength * (1 - 2.0/5))
 
     # Do the dechirp
     Product = numpy.multiply(Rchirp, DFT)
@@ -46,24 +107,306 @@ def denoise_and_dechirp(Stacked, Rchirp, blanking, truncSweepLength):
     Dechirped = numpy.roll(Dechirped,shifter)
     return Dechirped
 
-def read_and_stack_RADnh3(InputName,ChannelNum,SweepLength,StackDepth=10):
-    fd = open(InputName, 'r')
-    stacked = numpy.zeros(SweepLength)
-    while True:
-        for i in range(0,StackDepth):
-# Skip "header"
-            numpy.fromfile(fd, dtype='>i4', count=2)
-            if (ChannelNum == 1):
-                stack = numpy.fromfile(fd, dtype='>i2', count=SweepLength)
-# Skip other channel
-            numpy.fromfile(fd, dtype='>i2', count=SweepLength)
-            if (ChannelNum == 2):
-                stack = numpy.fromfile(fd, dtype='>i2', count=SweepLength)
-            if (stack.size != SweepLength):
+def denoise_and_dechirp_gen(cohstacks, Rchirp, blanking, truncSweepLength, bDoCinterp = True):
+    for trace in cohstacks:
+        Dechirped = denoise_and_dechirp(trace[1][0:truncSweepLength], Rchirp, blanking, truncSweepLength, bDoCinterp)
+        yield (trace[0], Dechirped)
+
+class StackState1:
+    """ State for stacking traces into blocks """
+    def __init__(self, StackDepth, SweepLength, presum=True):
+        self.StackDepth = StackDepth
+        self.stacks = numpy.zeros((StackDepth, SweepLength), dtype=numpy.float64)
+        self.idx = 0
+        self.count = 0
+        self.presum = presum
+
+    def dostack(self,sweep):
+        self.stacks[self.idx,...] = sweep
+        self.idx   += 1
+        self.count += 1
+
+        if self.idx >= self.StackDepth:
+            self.idx = 0
+            if self.presum:
+                return self.stacks.sum(axis=0)
+            else:
+                return self.stacks
+        else:
+            return None
+
+class StackState:
+    """ Accepts multiple completed stacks and returns a stack if both input channel queues contain data """
+    def __init__(self, ChannelSpec, StackDepth):
+        self.ChannelSpec = ChannelSpec
+        self.StackDepth  = StackDepth
+
+        self.fullstacks0 = []
+        self.fullstacks1 = []
+
+    def getstack(self):
+        # Logic lifted from read_and_stack.cc
+        bDo0 = (self.ChannelSpec.chan0in > 0)
+        bDo1 = (self.ChannelSpec.chan1in > 0)
+        bReady0 = bDo0 and len(self.fullstacks0) > 0
+        bReady1 = bDo1 and len(self.fullstacks1) > 0
+        scale0 = self.ChannelSpec.scalef0 / float(self.StackDepth)
+        scale1 = self.ChannelSpec.scalef1 / float(self.StackDepth)
+        array_out1 = None
+
+        if not ((bDo0 and not bReady0) or (bDo1 and not bReady1)) :
+            # assert self.fullstacks0[-1].shape[0] == self.StackDepth?
+
+            if bDo0 and bDo1:
+                array_out1 = scale0 * self.fullstacks0[-1] + scale1 * self.fullstacks1[-1]
+            elif bDo0 and not bDo1:
+                array_out1 = scale0 * self.fullstacks0[-1]
+            elif not bDo0 and bDo1:
+                array_out1 = scale1 * self.fullstacks1[-1]
+
+            if bReady0: 
+                self.fullstacks0.pop();
+            if bReady1: 
+                self.fullstacks1.pop();
+            return (self.ChannelSpec.chanout,array_out1)
+ 
+    def addstack( self, chan, stack ):
+        if len(self.fullstacks0) >= 1000 or len(self.fullstacks1) >= 1000:
+            raise Exception("overflow: p1cs={4:s} fullstacks0={0:d} fullstacks1={1:d} count0={2:d} count1={3:d}".format(len(self.fullstacks0), len(self.fullstacks1), self.count0, self.count1, self.ChannelSpec) )
+        if self.ChannelSpec.chan0in == chan:
+            self.fullstacks0.insert(0,stack)
+        elif self.ChannelSpec.chan1in == chan:
+            self.fullstacks1.insert(0,stack)
+        else:
+            # no change in state, so no need for getstacks
+            return None
+
+        return self.getstack()
+
+# Yields a tuple of an output channel and a NDArray of values
+# coherently stacked
+# tracegen should be a sequence (generator) of tuples where traces[0] is the channel id, 
+# and traces[1] is an ndarray that is the trace
+def Stacks_gen(traces, ChannelSpecs, StackDepth, SweepLength=3437):
+    stackstates = []
+    ss0 = {}
+    for (i,p1cs) in enumerate(ChannelSpecs):
+        logging.debug("p1cs[%d]=%s"% (i,str(p1cs)))
+        stackstates.append(StackState(p1cs, StackDepth))
+        for chan in (p1cs.chan0in, p1cs.chan1in):
+            if chan > 0 and chan not in ss0:
+                ss0[chan] =  StackState1(StackDepth, SweepLength)
+
+    ## TODO: make this read function selectable to accommodate for RADnh4
+    #for trace in read_RADnh3_gen(self.InputName, self.ChannelSpecs, self.SweepLength):
+    for trace in traces:
+        # Stack into appropriate bins
+        # Iterate over all the channel specs and see which ones need to be stacked
+
+        if trace[0] in ss0:
+            cohstack = ss0[ trace[0] ].dostack(numpy.float64(trace[1]))
+
+            if cohstack != None:
+                for (i,p1cs) in enumerate(ChannelSpecs):
+                    # Test to prevent extraneous calls to addstack()
+                    if p1cs.chan0in == trace[0] or p1cs.chan1in == trace[0]:
+                        result = stackstates[i].addstack(trace[0],cohstack)
+                        # If this stack state yielded a full stack, yield it
+                        if result != None:
+                            yield result
+
+
+
+# Yields a tuple of an output channel and a NDArray of values
+# Incoherently stacked
+# tracegen should be a sequence (generator) of tuples where traces[0] is the channel id, 
+# and traces[1] is an ndarray that is the trace
+def IncoStacks_gen(traces, ChannelSpecs, StackDepth, truncSweepLength=3200, bDoPhs=False):
+    ss0 = {}
+    for (i,p1cs) in enumerate(ChannelSpecs):
+        chan = p1cs.chanout
+        if chan > 0 and chan not in ss0:
+            ss0[chan] = IncoStackState(StackDepth, truncSweepLength, bDoPhs)
+
+    ## TODO: make this read function selectable to accommodate for RADnh4
+    #for trace in read_RADnh3_gen(self.InputName, self.ChannelSpecs, self.SweepLength):
+    for trace in traces:
+        # Stack into appropriate bins
+        # Iterate over all the channel specs and see which ones need to be stacked
+
+        if trace[0] in ss0:
+            stack = ss0[ trace[0] ].dostack( trace )
+
+            if stack != None:
+                yield stack
+                            
+# Read individual traces out of RADnh3 file        
+def read_RADnh3_gen(InputName, ChannelSpecs, SweepLength=3437):
+    radnh3_header_t = namedtuple('radnh3_header', 'nsamp nchan vr0 vr1 choff resvd1 resvd2')
+    n=0
+
+    # Construct a list of all channel offsets we want
+    choffs = set()
+    for p1cs in ChannelSpecs:
+        choffs.add(((p1cs.chan0in-1)//2)*2)
+        choffs.add(((p1cs.chan1in-1)//2)*2)
+
+
+    with open(InputName, 'r') as fd:
+        while True:
+            # read header
+            buff = fd.read(8)
+            if len(buff) < 8:
                 return
-            stacked = stacked + stack
-        yield stacked/StackDepth
-        stacked = numpy.zeros(SweepLength)
+            radnh3_header = radnh3_header_t._make(struct.unpack_from('>HBBBBBB', buff ))
+
+            # Legacy value of 0xff is equivalent to offset 0
+            if radnh3_header.choff == 0xff:
+                choff = 0
+            else:
+                choff = 0x0f & radnh3_header.choff
+
+            if choff in choffs:
+                traces = numpy.fromfile(fd, dtype='>i2', count=SweepLength*2)
+                traces.shape = (2, SweepLength)
+                yield (choff+1, traces[0][...])
+                yield (choff+2, traces[1][...])
+            else:
+                # Skip the rest of this record without yielding any values
+                fd.seek(4*SweepLength, os.SEEK_CUR)
+            n += 1
+
+class DataFilterBase:
+    def __init__(self, src):
+        self.src = src
+
+    def records(self):
+        pass
+
+
+class ComplexOutputFile(DataFilterBase):
+    pass
+
+class PIK1OutputFile(ComplexOutputFile):
+    """ Outputs magnitude and phase information for NDArray that comes through.
+        Optionally computes the mean before writing
+        It can be used as a tee filter and tap output at any phase in the 
+        processing stream.
+    """
+    # File descriptors
+    MagOutFD  = None
+    PhsOutFD  = None
+    MetaOutFD = None
+    
+    # File names
+    MagFileName  = None
+    PhsFileName  = None
+    MetaFileName = None
+
+    IncoDepth = None
+    MagScale  = None
+    ChannelNum = None
+
+    def __init__(self, src, MagScale):
+        self.MagScale = MagScale
+        ComplexOutputFile.__init__(self,src)
+
+    def open(self,basepath, channel, InputFileName, args, bDoPhs=True, bDoIdx=True):
+        self.close()
+
+        # TODO: remove references to args as possible
+        self.enable_meta_idx = bDoIdx
+        self.ChannelNum = channel
+        self.StackDepth = args.StackDepth
+        self.IncoDepth = args.IncoDepth
+
+        self.MagFileName = "{0:s}/MagLoResInco{1:d}".format(basepath, channel)
+        self.PhsFileName = "{0:s}/PhsLoResInco{1:d}".format(basepath, channel)
+        self.MetaFileName = "{0:s}/MagLoResInco{1:d}.meta{1:d}".format(basepath, channel)
+
+        ## Open Input and Output files
+
+        self.MetaOutFD = open(self.MetaFileName, 'w')
+        self.MetaOutFD.write('#InputName = "' + InputFileName + '"\n')
+        logging.info("writing %s" % self.MagFileName)
+        self.MagOutFD = open(self.MagFileName, 'wb')
+        self.MetaOutFD.write('#MagName = "' + self.MagFileName + '"\n')
+
+        if bDoPhs:
+            self.PhsOutFD = open(self.PhsFileName, 'w')
+            self.MetaOutFD.write('#PhsName = "' + self.PhsFileName + '"\n')
+
+        ###### FIXME? - request hdr file from xlob and read/forward
+        # TODO: collect this information into a data structure rather than reading directly from args.
+        ###### Make this Meta similar
+        self.MetaOutFD.write("#ChannelNum = " + str(self.ChannelNum) + "\n")
+        self.MetaOutFD.write("#StackDepth = " + str(self.StackDepth) + "\n")
+        self.MetaOutFD.write("#IncoDepth = "  + str(self.IncoDepth) + "\n")
+        self.MetaOutFD.write("#CenterMult = " + str(args.CenterMult) + "\n")
+        self.MetaOutFD.write("#MaxDepth = "   + str(args.MaxDepth) + "\n")
+        self.MetaOutFD.write("#StartSweep = " + str(args.StartSweep) + "\n")
+        self.MetaOutFD.write("#EndSweep = "   + str(args.EndSweep) + "\n")
+        self.MetaOutFD.write("#StartSamp = "  + str(args.StartSamp) + "\n")
+        self.MetaOutFD.write("#EndSamp = "    + str(args.EndSamp) + "\n")
+        self.MetaOutFD.write("#Scale = "      + str(self.MagScale) + "\n")
+        self.MetaOutFD.write("#Log = TRUE\n")
+
+        self.record_increment=self.StackDepth*self.IncoDepth
+        self.record=self.record_increment/2
+        
+    def write_record(self, IncoStacked):
+        # Write component files if enabled
+        if self.PhsOutFD != None:
+            Phase = numpy.int32(IncoStacked[2] * 16777216 )
+            Phase.byteswap(True)
+            Phase.tofile(self.PhsOutFD)
+
+        if self.MagOutFD != None:
+            ScaledMag = numpy.int32(self.MagScale * numpy.log10(IncoStacked[1]))
+            ScaledMag.byteswap(True)
+            ScaledMag.tofile(self.MagOutFD)
+
+        if (self.enable_meta_idx):
+            self.MetaOutFD.write(str(self.record) + "\n")
+        self.record += self.record_increment
+
+    def records(self):
+        bDoPhs = self.PhsOutFD != None
+        for IncoStacked in self.src.records():
+            self.write_record(IncoStacked)
+            yield IncoStacked
+
+    def close(self):
+        # flush stacks,
+        # warn about incomplete stacks
+        # close file handles
+
+        if self.MagOutFD != None:
+            self.MagOutFD.close()
+            self.MagOutFD = None
+
+        if self.PhsOutFD != None:
+            self.PhsOutFD.close()
+            self.PhsOutFD = None
+
+        if self.MetaOutFD != None:
+            self.MetaOutFD.close()
+            self.MetaOutFD = None
+
+
+def worker_writer(p1file):
+    logging.info("Starting channel %d" % p1file.ChannelNum)
+    for rec in p1file.records():
+        pass
+    logging.info("Finished")
+
+
+def threads_all_alive(list_threads):
+    for t in list_threads:
+        if not t.is_alive():
+            return False
+    return True
+
 
 
 def main(argv):
@@ -71,11 +414,15 @@ def main(argv):
 # filename of 2-byte radar file
     parser.add_argument('--InputName', required=True)
 # Channel Number to compress (counts from 1)
-    parser.add_argument('--ChannelNum', default=0, type=int)
+    parser.add_argument('--ChannelNum', default=0)
 # Length of each sweep (in samples)
+# TODO: This argument will soon be deprecated
     parser.add_argument('--SweepLength', required=True, type=int)
 # Length of each output sweep (in samples)
     parser.add_argument('--truncSweepLength', required=True, type=int)
+
+    parser.add_argument('--basepath', required=True)
+
 # filename of real part of raw compressed waveform
     parser.add_argument('--IName')
 # filename of imaginary part of raw compressed waveform
@@ -95,11 +442,11 @@ def main(argv):
 # Only output a sweep if MaxDepth sweeps could be stacked.
     parser.add_argument('--MaxDepth', required=True, type=int)
 # Output only sweeps with centers on or after this sweep
-    parser.add_argument('--StartSweep', type=int)
+    parser.add_argument('--StartSweep', type=int, default=1)
 # Output only sweeps with centers before or on this sweep
     parser.add_argument('--EndSweep', type=int)
 # Output sweep samples starting with this one
-    parser.add_argument('--StartSamp', type=int)
+    parser.add_argument('--StartSamp', type=int, default=1)
 # Output sweep samples ending with this one
     parser.add_argument('--EndSamp', type=int)
 # Output scale default is 1000*dB
@@ -108,10 +455,23 @@ def main(argv):
     parser.add_argument('--blanking', type=int, default=50)
 # Stream name
     parser.add_argument('--StreamName', required=True)
+# bandpass sampling, false is for legacy hicars.
+# Disables cinterp and flips the chirp
+    parser.add_argument('--BandpassSamplingMode', action='store_true')
+# Print debugging messages
+    parser.add_argument('--debug', action='store_true')
 
     args = parser.parse_args()
 
-    if args.EndSamp or args.EndSamp == 0 > args.SweepLength:
+    if args.debug:
+        LOGLEVEL=logging.DEBUG
+    else:
+        LOGLEVEL=logging.INFO
+    logging.basicConfig(level=LOGLEVEL,
+                    format='pyk1: %(relativeCreated)8d [%(levelname)-5s] (%(process)d %(threadName)-10s) %(message)s',
+                    )
+
+    if args.EndSamp == 0 or args.EndSamp > args.SweepLength:
         args.EndSamp = args.SweepLength
     if args.StartSamp > args.EndSamp:
         sys.exit('pyk1: bad start and end samples.')
@@ -122,84 +482,109 @@ def main(argv):
     if args.SweepLength <= 0:
         sys.exit('pyk1: sweep length must be positive')
 
-    record_increment=args.StackDepth*args.IncoDepth
-    record=record_increment/2
-
 # Obtain reference chirp
     I = numpy.array([-63, -92, -109, -75, -87, -50, -116, -154, -22, 68, 141, -610, 1461, 3807, -6147, -5375, 10651, -4412, -9810, 15386, -3070, -14499, 15130, 3677, -15935, 3743, 13362, -5884, -13301, 8455, 12542, -8744, -11977, 5105, 13754, -961, -14342, -5184, 10294, 12194, -2709, -14352, -8807, 5965, 15350, 8368, -6605, -14990, -11515, 196, 11276, 15490, 10300, -645, -10730, -15307, -13379, -7342, 377, 7264, 11662, 13435, 11530, 3243, -4865, -4427, -3233, -4000, -2472, -2498, -2361, -1230, -1311, -618, -578, -569, -121, -319, 206, 328, 436, 613, 318, 514, 353, 277, 221, 34, 250, 132, 199, 189, 75, 190, 65, 106, 19, -64, -14, -117])
-    rchirp = numpy.flipud(I)
+    if not args.BandpassSamplingMode:
+        rchirp = numpy.flipud(I)
+    else:
+        rchirp = I
     Rchirp = numpy.fft.fft(rchirp,n=args.truncSweepLength)
 
 # Compute Hamming Filter
     From = round(2.5 * args.truncSweepLength / 50)
     To = round(17.5 * args.truncSweepLength / 50)
     hamming = numpy.sin(numpy.linspace(0,1,num=To-From+1) * numpy.pi)
-    filter = numpy.hstack((numpy.zeros(From), hamming*2, numpy.zeros(args.truncSweepLength-2*To-1), numpy.zeros(hamming.size), numpy.zeros(From-1)))
+    hfilter = numpy.hstack((numpy.zeros(From), hamming*2, numpy.zeros(args.truncSweepLength-2*To-1), numpy.zeros(hamming.size), numpy.zeros(From-1)))
 
 ## Filter Chirp
+    # disable for production work
+    # plt.plot(hfilter, range(0,filter.size))
+    Rchirp = numpy.multiply(Rchirp, hfilter)
 
-    plt.plot(filter, range(0,filter.size))
-    Rchirp = numpy.multiply(Rchirp, filter)
+    ChannelSpecs = parse_channels( args.ChannelNum )
+    logging.debug(ChannelSpecs)
+    # Read traces from file
+    tracegen = read_RADnh3_gen(args.InputName, ChannelSpecs, args.SweepLength) 
+    # Demultiplex stacks and generate coherently-stacked traces
+    stackgen = Stacks_gen(tracegen, ChannelSpecs,args.StackDepth, args.SweepLength)
+    # Dechirp coherent stacks
+    dechirpgen = denoise_and_dechirp_gen(stackgen, Rchirp, args.blanking, args.truncSweepLength, not args.BandpassSamplingMode)
+    # Incoherently stack 
+    istackgen = IncoStacks_gen(dechirpgen, ChannelSpecs, args.IncoDepth, args.truncSweepLength, bDoPhs=args.PhsName != "")
 
-## Open Input and Output files
+    
+    outfiles = {}
+    #for p1cs in ChannelSpecs:
+    #    outfiles[ p1cs.chanout ] = PIK1OutputFile( p1src, args.Scale )
+    #    outfiles[ p1cs.chanout ].open(args.basepath, p1cs.chanout, args.InputName, args, args.PhsName != "")
 
-    MetaOutFD = open(args.MetaName, 'w')
-    MetaOutFD.write('#MagName = "' + args.InputName + '"\n')
+    bMultithread = False
+    if bMultithread:
+        # Start the writer threads.
+        threads = []
+        queues  = []
 
-    MagOutFD = open(args.MagName, 'w')
-    MetaOutFD.write('#MagName = "' + args.MagName + '"\n')
+        for (i, p1cs) in enumerate(ChannelSpecs):
+            qs1 = QueueSource(10)
 
-    if args.PhsName:
-        PhsOutFD = open(args.PhsName, 'w')
-        MetaOutFD.write('#PhsName = "' + args.PhsName + '"\n')
+            outfiles[ p1cs.chanout ] = PIK1OutputFile( qs1, args.Scale )
+            outfiles[ p1cs.chanout ].open(args.basepath, p1cs.chanout, args.InputName, args, args.PhsName != "")
 
-    ###### FIXME? - request hdr file from xlob and read/forward
-    ###### Make this Meta similar
-    MetaOutFD.write("#ChannelNum = " + str(args.ChannelNum) + "\n")
-    MetaOutFD.write("#StackDepth = " + str(args.StackDepth) + "\n")
-    MetaOutFD.write("#IncoDepth = " + str(args.IncoDepth) + "\n")
-    MetaOutFD.write("#CenterMult = " + str(args.CenterMult) + "\n")
-    MetaOutFD.write("#MaxDepth = " + str(args.MaxDepth) + "\n")
-    MetaOutFD.write("#StartSweep = " + str(args.StartSweep) + "\n")
-    MetaOutFD.write("#EndSweep = " + str(args.EndSweep) + "\n")
-    MetaOutFD.write("#StartSamp = " + str(args.StartSamp) + "\n")
-    MetaOutFD.write("#EndSamp = " + str(args.EndSamp) + "\n")
-    MetaOutFD.write("#Scale = " + str(args.Scale) + "\n")
-    MetaOutFD.write("#Log = TRUE\n")
+            # This thread pulls records from its source
+            t = threading.Thread(target=worker_writer, args=(outfiles[ p1cs.chanout ],), name="ch%d" % ChannelSpecs[i].chanout)
+            threads.append(t)
+            queues.append(qs1)
+            t.start()    
+            try:
+                # pump records from the source file into the queue
+                for rec in istackgen:
+                    try:
+                        for (i, qs1) in enumerate(queues):
+                            if rec[0] == ChannelSpecs[i].chanout:
+                                qs1.put(rec, True, 1.0)
 
-## Prepare to loop
+                    except Queue.Full:
+                        if not threads_all_alive(threads):
+                            break
+                logging.info("Done writing.")
+            finally:
+                for q in queues:
+                    try:
+                        q.put(None)
+                    except Queue.Full:
+                        pass
 
-    StackCenter = int(numpy.fix((args.IncoDepth/2+0.5)))
+        logging.debug("Waiting for threads to finish.")
+        # wait for all queues to finish.
+        for t in threads:
+            t.join()
 
-    idxinco = 0
-    for Stacked in read_and_stack_RADnh3(args.InputName,args.ChannelNum,args.SweepLength,args.StackDepth):
-        truncStacked=Stacked[0:args.truncSweepLength]
-        Dechirped = denoise_and_dechirp(truncStacked, Rchirp,args.blanking,args.truncSweepLength)
-        # Get the magnitude
-        if (idxinco == 0):
-            IncoherentStack = numpy.abs(Dechirped)
-            if args.PhsName:
-                PhsStack = numpy.angle(Dechirped)
-        else:
-            IncoherentStack = numpy.vstack((IncoherentStack,numpy.abs(Dechirped)))
-            if args.PhsName:
-                PhsStack = numpy.vstack((PhsStack,numpy.angle(Dechirped)))
+        logging.debug("Threads finished.")
+        
+    else:
+        # Initialize output files
+        for p1cs in ChannelSpecs:
+            outfiles[ p1cs.chanout ] = PIK1OutputFile( None, args.Scale )
+            outfiles[ p1cs.chanout ].open(args.basepath, p1cs.chanout, args.InputName, args, args.PhsName != "")
+        for rec in istackgen:
+            if rec[0] in outfiles:
+                outfiles[ rec[0] ].write_record( rec)
+            else:
+                raise Exception("Invalid output channel %d" % rec[0] )
 
-        idxinco = idxinco + 1
-        if (idxinco == args.IncoDepth):
-            idxinco = 0
-            Incoherent = numpy.mean(IncoherentStack, axis=0)
-            # Get just the center phase
-            if args.PhsName:
-                Phase = numpy.int32(PhsStack[StackCenter,...] * 16777216)
-                Phase.byteswap(True)
-                Phase.tofile(PhsOutFD)
+    for p1cs in ChannelSpecs:
+        outfiles[ p1cs.chanout ].close()
 
-            ScaledMag = numpy.int32(args.Scale * numpy.log10(Incoherent))
-            ScaledMag.byteswap(True)
-            ScaledMag.tofile(MagOutFD)
-            MetaOutFD.write(str(record) + "\n")
-            record=record+record_increment
 
 if __name__ == "__main__":
-    main(sys.argv)
+
+    bDoProfile = False
+    if bDoProfile:
+        import os
+        prof_file = "/tmp/pyk1b.{0:d}.prof".format(os.getpid())
+        cProfile.run('main(sys.argv)', prof_file)
+        import pstats
+        p = pstats.Stats(prof_file)
+        p.sort_stats('cumulative').print_stats(50)
+    else:
+        main(sys.argv)
