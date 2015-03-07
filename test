@@ -1,2 +1,0 @@
-#!/bin/csh
-time python2.7 pyk1.py --InputName $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/bxds --ChannelNum 2 --SweepLength 3437 --truncSweepLength 3200 --MagName Mag.out --MetaName Meta.out --StackDepth 10 --IncoDepth 5 --CenterMult 10 --MaxDepth 150 --Scale 20000 --blanking 200 --StreamName RADnh3

@@ -9,6 +9,7 @@
 
 
 import os
+import gzip
 import sys
 import argparse
 import numpy
@@ -29,6 +30,27 @@ from parse_channels import parse_channels
 enable_meta_index=True
 ################################################
 
+# from http://stackoverflow.com/questions/3160699/python-progress-bar
+def update_progress(n,total):
+    progress=float(n)/float(total)
+    barLength = 20 # Modify this to change the length of the progress bar
+    status = ""
+    if isinstance(progress, int):
+        progress = float(progress)
+    if not isinstance(progress, float):
+        progress = 0
+        status = "error: progress var must be float\r\n"
+    if progress < 0:
+        progress = 0
+        status = "Halt...\r\n"
+    if progress >= 1:
+        progress = 1
+        status = "Done...\r\n"
+    block = int(round(barLength*progress))
+    text = "\rPercent: [{0}] {1:.1f}% {2}/{3} {4}".format( "#"*block + "-"*(barLength-block), progress*100, n, total, status)
+    sys.stdout.write(text)
+    sys.stdout.flush()
+
 class IncoStackState:
     """ This state is separated out from IncoStackFilter so we can use yield or as a functional call """
     def __init__(self, StackDepth, truncSweepLength, bDoPhs=False):
@@ -37,20 +59,23 @@ class IncoStackState:
         self.PhsStack        = StackState1(StackDepth, truncSweepLength, False) # phase
         self.bDoPhs = bDoPhs
         self.StackCenter = int(numpy.fix( (self.StackDepth/2+0.5) ))
+        #print 'StackCenter {}'.format(self.StackCenter)
         
     def dostack(self, Dechirped):
         """ Trace is a complex, dechirped trace """
-        mag = self.IncoherentStack.dostack( numpy.abs( Dechirped[1] ) )
-        if self.bDoPhs:
-            phs = self.PhsStack.dostack( numpy.angle( Dechirped[1] ) )
+        mag = self.IncoherentStack.dostack( numpy.abs( Dechirped[1]), Dechirped[2])
 
+        if self.bDoPhs:
+            phs = self.PhsStack.dostack( numpy.angle( Dechirped[1] ), Dechirped[2])
         if mag != None:
-            mag = numpy.mean( mag  , axis=0 )
+            mag = numpy.mean( mag[0]  , axis=0 )
+         #   print 'mag'
+         #   print mag
             if self.bDoPhs:
-                phs = phs[self.StackCenter,...]
+                phs = phs[0][self.StackCenter,...]
             else:
                 phs = None
-            return (Dechirped[0],mag, phs)
+            return (Dechirped[0],mag, phs,Dechirped[2])
 
 class QueueSource:
     """ Gets records from a python Queue to be used as an input to a filter """
@@ -110,7 +135,9 @@ def denoise_and_dechirp(Stacked, Rchirp, blanking, truncSweepLength, bDoCinterp 
 def denoise_and_dechirp_gen(cohstacks, Rchirp, blanking, truncSweepLength, bDoCinterp = True):
     for trace in cohstacks:
         Dechirped = denoise_and_dechirp(trace[1][0:truncSweepLength], Rchirp, blanking, truncSweepLength, bDoCinterp)
-        yield (trace[0], Dechirped)
+        #print 'denoise_and_dechirped'
+        #print trace
+        yield (trace[0], Dechirped, trace[2])
 
 class StackState1:
     """ State for stacking traces into blocks """
@@ -121,17 +148,18 @@ class StackState1:
         self.count = 0
         self.presum = presum
 
-    def dostack(self,sweep):
+    def dostack(self,sweep,seq):
         self.stacks[self.idx,...] = sweep
         self.idx   += 1
         self.count += 1
-
         if self.idx >= self.StackDepth:
             self.idx = 0
             if self.presum:
-                return self.stacks.sum(axis=0)
+         #       print 'StackState1.dostack'
+         #       print (self.stacks.sum(axis=0),seq-(self.StackDepth/2))
+                return (self.stacks.sum(axis=0),seq-(self.StackDepth/2))
             else:
-                return self.stacks
+                return (self.stacks,seq)
         else:
             return None
 
@@ -143,6 +171,8 @@ class StackState:
 
         self.fullstacks0 = []
         self.fullstacks1 = []
+        self.seq0 = []
+        self.seq1 = []
 
     def getstack(self):
         # Logic lifted from read_and_stack.cc
@@ -153,30 +183,40 @@ class StackState:
         scale0 = self.ChannelSpec.scalef0 / float(self.StackDepth)
         scale1 = self.ChannelSpec.scalef1 / float(self.StackDepth)
         array_out1 = None
+        seq_out=None
 
         if not ((bDo0 and not bReady0) or (bDo1 and not bReady1)) :
             # assert self.fullstacks0[-1].shape[0] == self.StackDepth?
 
             if bDo0 and bDo1:
+                if not (self.seq0 == self.seq1):
+                    print 'Mismatch! Channel 0 {} Channel 1 {}'.format(self.seq0,self.seq1)
                 array_out1 = scale0 * self.fullstacks0[-1] + scale1 * self.fullstacks1[-1]
+                seq_out=self.seq0[-1]
             elif bDo0 and not bDo1:
                 array_out1 = scale0 * self.fullstacks0[-1]
+                seq_out=self.seq0[-1]
             elif not bDo0 and bDo1:
                 array_out1 = scale1 * self.fullstacks1[-1]
+                seq_out=self.seq1[-1]
 
             if bReady0: 
                 self.fullstacks0.pop();
+                self.seq0.pop();
             if bReady1: 
                 self.fullstacks1.pop();
-            return (self.ChannelSpec.chanout,array_out1)
+                self.seq1.pop();
+            return (self.ChannelSpec.chanout,array_out1,seq_out)
  
     def addstack( self, chan, stack ):
         if len(self.fullstacks0) >= 1000 or len(self.fullstacks1) >= 1000:
             raise Exception("overflow: p1cs={4:s} fullstacks0={0:d} fullstacks1={1:d} count0={2:d} count1={3:d}".format(len(self.fullstacks0), len(self.fullstacks1), self.count0, self.count1, self.ChannelSpec) )
         if self.ChannelSpec.chan0in == chan:
-            self.fullstacks0.insert(0,stack)
+            self.fullstacks0.insert(0,stack[0])
+            self.seq0.insert(0,stack[1])
         elif self.ChannelSpec.chan1in == chan:
-            self.fullstacks1.insert(0,stack)
+            self.fullstacks1.insert(0,stack[0])
+            self.seq1.insert(0,stack[1])
         else:
             # no change in state, so no need for getstacks
             return None
@@ -186,7 +226,8 @@ class StackState:
 # Yields a tuple of an output channel and a NDArray of values
 # coherently stacked
 # tracegen should be a sequence (generator) of tuples where traces[0] is the channel id, 
-# and traces[1] is an ndarray that is the trace
+# traces[1] is an ndarray that is the trace
+# and traces[2] is the sequnece number of the trace
 def Stacks_gen(traces, ChannelSpecs, StackDepth, SweepLength=3437):
     stackstates = []
     ss0 = {}
@@ -204,7 +245,7 @@ def Stacks_gen(traces, ChannelSpecs, StackDepth, SweepLength=3437):
         # Iterate over all the channel specs and see which ones need to be stacked
 
         if trace[0] in ss0:
-            cohstack = ss0[ trace[0] ].dostack(numpy.float64(trace[1]))
+            cohstack = ss0[ trace[0] ].dostack(numpy.float64(trace[1]),trace[2])
 
             if cohstack != None:
                 for (i,p1cs) in enumerate(ChannelSpecs):
@@ -236,12 +277,16 @@ def IncoStacks_gen(traces, ChannelSpecs, StackDepth, truncSweepLength=3200, bDoP
 
         if trace[0] in ss0:
             stack = ss0[ trace[0] ].dostack( trace )
+            #print 'IncoStacks_gen.trace'
+            #print trace
+            #print 'IncoStacks_gen.stack'
+            #print stack
 
             if stack != None:
                 yield stack
                             
 # Read individual traces out of RADnh3 file        
-def read_RADnh3_gen(InputName, ChannelSpecs, SweepLength=3437):
+def read_RADnh3_gen(InputName, ChannelSpecs, ct, SweepLength=3437):
     radnh3_header_t = namedtuple('radnh3_header', 'nsamp nchan vr0 vr1 choff resvd1 resvd2')
     n=0
 
@@ -269,12 +314,29 @@ def read_RADnh3_gen(InputName, ChannelSpecs, SweepLength=3437):
             if choff in choffs:
                 traces = numpy.fromfile(fd, dtype='>i2', count=SweepLength*2)
                 traces.shape = (2, SweepLength)
-                yield (choff+1, traces[0][...])
-                yield (choff+2, traces[1][...])
+                yield (choff+1, traces[0][...],ct['seq'][n])
+                yield (choff+2, traces[1][...],ct['seq'][n])
             else:
                 # Skip the rest of this record without yielding any values
                 fd.seek(4*SweepLength, os.SEEK_CUR)
+            if (n % 2400) == 0: 
+                update_progress(n,ct.shape[0])
             n += 1
+
+# Read individual traces out of RADjh1 files        
+def read_RADjh1_gen(InputName, ChannelSpecs, ct, SweepLength=3200):
+    n=0
+
+    # Construct a list of all channel offsets we want
+    with open('{}1'.format(InputName), 'r') as fd1, open('{}2'.format(InputName), 'r') as fd2:
+        while True and n < ct.shape[0]:
+            traces1 = numpy.fromfile(fd1, dtype='<i2', count=SweepLength)
+            traces2 = numpy.fromfile(fd2, dtype='<i2', count=SweepLength)
+            yield (1, traces1 ,ct['seq'][n])
+            yield (2, traces2 ,ct['seq'][n])
+            if (n % 2400) == 0: 
+                update_progress(n,ct.shape[0])
+            n=n+1
 
 class DataFilterBase:
     def __init__(self, src):
@@ -320,9 +382,9 @@ class PIK1OutputFile(ComplexOutputFile):
         self.StackDepth = args.StackDepth
         self.IncoDepth = args.IncoDepth
 
-        self.MagFileName = "{0:s}/MagLoResInco{1:d}".format(basepath, channel)
-        self.PhsFileName = "{0:s}/PhsLoResInco{1:d}".format(basepath, channel)
-        self.MetaFileName = "{0:s}/MagLoResInco{1:d}.meta{1:d}".format(basepath, channel)
+        self.MagFileName = "{0:s}/{1:s}{2:d}".format(basepath,args.MagName, channel)
+        self.PhsFileName = "{0:s}/{1:s}{2:d}".format(basepath, args.PhsName, channel)
+        self.MetaFileName = "{0:s}/{1:s}{2:d}.meta".format(basepath, args.MetaName, channel)
 
         ## Open Input and Output files
 
@@ -351,8 +413,8 @@ class PIK1OutputFile(ComplexOutputFile):
         self.MetaOutFD.write("#Scale = "      + str(self.MagScale) + "\n")
         self.MetaOutFD.write("#Log = TRUE\n")
 
-        self.record_increment=self.StackDepth*self.IncoDepth
-        self.record=self.record_increment/2
+        #self.record_increment=self.StackDepth*self.IncoDepth
+        #self.record=self.record_increment/2
         
     def write_record(self, IncoStacked):
         # Write component files if enabled
@@ -367,8 +429,8 @@ class PIK1OutputFile(ComplexOutputFile):
             ScaledMag.tofile(self.MagOutFD)
 
         if (self.enable_meta_idx):
-            self.MetaOutFD.write(str(self.record) + "\n")
-        self.record += self.record_increment
+            self.MetaOutFD.write(str(IncoStacked[3]) + "\n")
+        #self.record += self.record_increment
 
     def records(self):
         bDoPhs = self.PhsOutFD != None
@@ -413,6 +475,8 @@ def main(argv):
     parser = argparse.ArgumentParser(description='Pulse compress radar data')
 # filename of 2-byte radar file
     parser.add_argument('--InputName', required=True)
+# filename of counter-timer file
+    parser.add_argument('--InputCT', required=True)
 # Channel Number to compress (counts from 1)
     parser.add_argument('--ChannelNum', default=0)
 # Length of each sweep (in samples)
@@ -503,12 +567,37 @@ def main(argv):
 
     ChannelSpecs = parse_channels( args.ChannelNum )
     logging.debug(ChannelSpecs)
+
+    # Read CT file
+    print 'reading ct file'
+    try:
+        ct=numpy.loadtxt(args.InputCT,dtype={'names':['P','S','T','seq','YY','MM','DD','hh','mm','ss','fs','ct'],'formats':['|S8','|S8','|S8','int32','int16','int8','int8','int8','int8','int8','int8','int32']})
+    except:
+        print 'failed to read ct file'
+        exit()
+    print 'processing radar data with {} raw traces'.format(ct.shape[0])
+
     # Read traces from file
-    tracegen = read_RADnh3_gen(args.InputName, ChannelSpecs, args.SweepLength) 
+    if args.StreamName == 'RADnh3':
+        tracegen = read_RADnh3_gen(args.InputName, ChannelSpecs, ct, args.SweepLength) 
+    elif args.StreamName == 'RADjh1':
+        tracegen = read_RADjh1_gen(args.InputName, ChannelSpecs, ct, args.SweepLength) 
+    else:
+        print '{}: Bad stream name {}'.format(__file__,args.StreamName)
+        exit()
+    
+    #i=1
+    #for trace in tracegen:
+    #    if i < 10:
+    #        print trace
+    #        i=i+1
+    #    else:
+    #        exit()
     # Demultiplex stacks and generate coherently-stacked traces
     stackgen = Stacks_gen(tracegen, ChannelSpecs,args.StackDepth, args.SweepLength)
     # Dechirp coherent stacks
     dechirpgen = denoise_and_dechirp_gen(stackgen, Rchirp, args.blanking, args.truncSweepLength, not args.BandpassSamplingMode)
+
     # Incoherently stack 
     istackgen = IncoStacks_gen(dechirpgen, ChannelSpecs, args.IncoDepth, args.truncSweepLength, bDoPhs=args.PhsName != "")
 
@@ -516,7 +605,7 @@ def main(argv):
     outfiles = {}
     #for p1cs in ChannelSpecs:
     #    outfiles[ p1cs.chanout ] = PIK1OutputFile( p1src, args.Scale )
-    #    outfiles[ p1cs.chanout ].open(args.basepath, p1cs.chanout, args.InputName, args, args.PhsName != "")
+#    outfiles[ p1cs.chanout ].open(args.basepath, p1cs.chanout, args.InputName, args, args.PhsName != "")
 
     bMultithread = False
     if bMultithread:
@@ -572,12 +661,13 @@ def main(argv):
             else:
                 raise Exception("Invalid output channel %d" % rec[0] )
 
+    update_progress(ct.shape[0],ct.shape[0])
+
     for p1cs in ChannelSpecs:
         outfiles[ p1cs.chanout ].close()
 
 
 if __name__ == "__main__":
-
     bDoProfile = False
     if bDoProfile:
         import os
