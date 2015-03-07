@@ -7,7 +7,6 @@
 #
 ## TODO: remove queueing because cache misses cause it to be slow.
 
-
 import os
 import gzip
 import sys
@@ -532,19 +531,19 @@ def main(argv):
     else:
         LOGLEVEL=logging.INFO
     logging.basicConfig(level=LOGLEVEL,
-                    format='pyk1: %(relativeCreated)8d [%(levelname)-5s] (%(process)d %(threadName)-10s) %(message)s',
+                    format='LOG: %(relativeCreated)8d [%(levelname)-5s] (%(process)d %(threadName)-10s) %(message)s',
                     )
 
     if args.EndSamp == 0 or args.EndSamp > args.SweepLength:
         args.EndSamp = args.SweepLength
     if args.StartSamp > args.EndSamp:
-        sys.exit('pyk1: bad start and end samples.')
+        sys.exit('{}: bad start and end samples.'.format(__file__))
 
     if args.StackDepth <= 0 or args.CenterMult <= 0 or args.MaxDepth <= 0:
-        sys.exit('pyk1: all depths must be positive')
+        sys.exit('{}: all depths must be positive.'.format(__file___))
 
     if args.SweepLength <= 0:
-        sys.exit('pyk1: sweep length must be positive')
+        sys.exit('{}: sweep length must be positive'.format(__file__))
 
 # Obtain reference chirp
     I = numpy.array([-63, -92, -109, -75, -87, -50, -116, -154, -22, 68, 141, -610, 1461, 3807, -6147, -5375, 10651, -4412, -9810, 15386, -3070, -14499, 15130, 3677, -15935, 3743, 13362, -5884, -13301, 8455, 12542, -8744, -11977, 5105, 13754, -961, -14342, -5184, 10294, 12194, -2709, -14352, -8807, 5965, 15350, 8368, -6605, -14990, -11515, 196, 11276, 15490, 10300, -645, -10730, -15307, -13379, -7342, 377, 7264, 11662, 13435, 11530, 3243, -4865, -4427, -3233, -4000, -2472, -2498, -2361, -1230, -1311, -618, -578, -569, -121, -319, 206, 328, 436, 613, 318, 514, 353, 277, 221, 34, 250, 132, 199, 189, 75, 190, 65, 106, 19, -64, -14, -117])
