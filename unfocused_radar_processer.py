@@ -372,7 +372,7 @@ class PIK1OutputFile(ComplexOutputFile):
         self.MagScale = MagScale
         ComplexOutputFile.__init__(self,src)
 
-    def open(self,basepath, channel, InputFileName, args, bDoPhs=True, bDoIdx=True):
+    def open(self,basepath, channel, InputFileName, args, bDoPhs=False, bDoIdx=True):
         self.close()
 
         # TODO: remove references to args as possible
@@ -598,7 +598,7 @@ def main(argv):
     dechirpgen = denoise_and_dechirp_gen(stackgen, Rchirp, args.blanking, args.truncSweepLength, not args.BandpassSamplingMode)
 
     # Incoherently stack 
-    istackgen = IncoStacks_gen(dechirpgen, ChannelSpecs, args.IncoDepth, args.truncSweepLength, bDoPhs=args.PhsName != "")
+    istackgen = IncoStacks_gen(dechirpgen, ChannelSpecs, args.IncoDepth, args.truncSweepLength, bDoPhs=args.PhsName != None)
 
     
     outfiles = {}
@@ -616,7 +616,7 @@ def main(argv):
             qs1 = QueueSource(10)
 
             outfiles[ p1cs.chanout ] = PIK1OutputFile( qs1, args.Scale )
-            outfiles[ p1cs.chanout ].open(args.basepath, p1cs.chanout, args.InputName, args, args.PhsName != "")
+            outfiles[ p1cs.chanout ].open(args.basepath, p1cs.chanout, args.InputName, args, args.PhsName != None)
 
             # This thread pulls records from its source
             t = threading.Thread(target=worker_writer, args=(outfiles[ p1cs.chanout ],), name="ch%d" % ChannelSpecs[i].chanout)
@@ -653,7 +653,7 @@ def main(argv):
         # Initialize output files
         for p1cs in ChannelSpecs:
             outfiles[ p1cs.chanout ] = PIK1OutputFile( None, args.Scale )
-            outfiles[ p1cs.chanout ].open(args.basepath, p1cs.chanout, args.InputName, args, args.PhsName != "")
+            outfiles[ p1cs.chanout ].open(args.basepath, p1cs.chanout, args.InputName, args, args.PhsName != None)
         for rec in istackgen:
             if rec[0] in outfiles:
                 outfiles[ rec[0] ].write_record( rec)

@@ -6,6 +6,7 @@ time python2.7 unfocused_radar_processer.py \
     --SweepLength 3437 \
     --truncSweepLength 3200 \
     --MagName Mag.out \
+    --PhsName Phs.out \
     --MetaName Meta.out \
     --StackDepth 10 \
     --IncoDepth 5 \
