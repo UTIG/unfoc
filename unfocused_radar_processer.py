@@ -337,6 +337,12 @@ def read_RADjh1_gen(InputName, ChannelSpecs, ct, SweepLength=3200):
                 update_progress(n,ct.shape[0])
             n=n+1
 
+def write_sys(basepath, stream):
+    print '{}: writing {}/sys.ccn file'.format(__file__,basepath)
+    StreamFileName='{0:s}/sys.ccn'.format(basepath)
+    with open(StreamFileName,'w') as StreamFD:
+        StreamFD.write(stream + "\n")
+
 class DataFilterBase:
     def __init__(self, src):
         self.src = src
@@ -348,7 +354,7 @@ class DataFilterBase:
 class ComplexOutputFile(DataFilterBase):
     pass
 
-class PIK1OutputFile(ComplexOutputFile):
+class  PIK1OutputFile(ComplexOutputFile):
     """ Outputs magnitude and phase information for NDArray that comes through.
         Optionally computes the mean before writing
         It can be used as a tee filter and tap output at any phase in the 
@@ -415,6 +421,8 @@ class PIK1OutputFile(ComplexOutputFile):
         #self.record_increment=self.StackDepth*self.IncoDepth
         #self.record=self.record_increment/2
         
+        
+
     def write_record(self, IncoStacked):
         # Write component files if enabled
         if self.PhsOutFD != None:
@@ -585,6 +593,7 @@ def main(argv):
         print '{}: Bad stream name {}'.format(__file__,args.StreamName)
         exit()
     
+
     #i=1
     #for trace in tracegen:
     #    if i < 10:
@@ -600,6 +609,8 @@ def main(argv):
     # Incoherently stack 
     istackgen = IncoStacks_gen(dechirpgen, ChannelSpecs, args.IncoDepth, args.truncSweepLength, bDoPhs=args.PhsName != None)
 
+    #Write out sys.ccn file with stream information
+    write_sys(args.basepath,args.StreamName)
     
     outfiles = {}
     #for p1cs in ChannelSpecs:
@@ -616,6 +627,8 @@ def main(argv):
             qs1 = QueueSource(10)
 
             outfiles[ p1cs.chanout ] = PIK1OutputFile( qs1, args.Scale )
+
+
             outfiles[ p1cs.chanout ].open(args.basepath, p1cs.chanout, args.InputName, args, args.PhsName != None)
 
             # This thread pulls records from its source
