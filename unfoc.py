@@ -134,8 +134,6 @@ def denoise_and_dechirp(Stacked, Rchirp, blanking, truncSweepLength, bDoCinterp 
 def denoise_and_dechirp_gen(cohstacks, Rchirp, blanking, truncSweepLength, bDoCinterp = True):
     for trace in cohstacks:
         Dechirped = denoise_and_dechirp(trace[1][0:truncSweepLength], Rchirp, blanking, truncSweepLength, bDoCinterp)
-        #print 'denoise_and_dechirped'
-        #print trace
         yield (trace[0], Dechirped, trace[2])
 
 class StackState1:
@@ -154,8 +152,6 @@ class StackState1:
         if self.idx >= self.StackDepth:
             self.idx = 0
             if self.presum:
-         #       print 'StackState1.dostack'
-         #       print (self.stacks.sum(axis=0),seq-(self.StackDepth/2))
                 return (self.stacks.sum(axis=0),seq-(self.StackDepth/2))
             else:
                 return (self.stacks,seq)
@@ -188,7 +184,7 @@ class StackState:
             # assert self.fullstacks0[-1].shape[0] == self.StackDepth?
 
             if bDo0 and bDo1:
-                if not (self.seq0 == self.seq1):
+                if self.seq0[-1] != self.seq1[-1]:
                     logging.info('SEQ Mismatch: ch0={} ch1={}'.format(self.seq0,self.seq1))
                 array_out1 = scale0 * self.fullstacks0[-1] + scale1 * self.fullstacks1[-1]
                 seq_out=self.seq0[-1]
