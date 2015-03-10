@@ -1,4 +1,7 @@
 #!/bin/csh
+
+set BASEPATH=/disk/tio/tmp
+
 time python2.7 unfocused_radar_processer.py \
     --InputName $WAIS/orig/xlob/MBL/MKB2l/Y76a/RADnh3/bxds \
     --InputCT $WAIS/orig/xlob/MBL/MKB2l/Y76a/RADnh3/ct.gz \
@@ -15,7 +18,7 @@ time python2.7 unfocused_radar_processer.py \
     --Scale 20000 \
         --StartSamp 1 \
         --EndSamp 3437 \
-    --basepath /disk/tio/tmp \
+    --basepath $BASEPATH \
     --BandpassSamplingMode \
     --blanking 200 --StreamName RADnh3
     #--InputName $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/bxds \

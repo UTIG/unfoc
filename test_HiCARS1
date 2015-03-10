@@ -1,5 +1,9 @@
 #!/bin/csh
-time python2.7 unfocused_radar_processer.py \
+
+# default variable
+set BASEPATH=/disk/tio/tmp
+
+time python2.7 unfoc.py \
     --InputName $WAIS/orig/xlob/ASB/JKB1a/Y38a/RADjh1/bxds \
     --InputCT $WAIS/orig/xlob/ASB/JKB1a/Y38a/RADjh1/ct.gz \
     --ChannelNum "[1,1,1,0,0;2,2,1,0,0]" \
@@ -14,7 +18,7 @@ time python2.7 unfocused_radar_processer.py \
     --Scale 20000 \
         --StartSamp 1 \
         --EndSamp 3200 \
-    --basepath /disk/tio/tmp \
+    --basepath $BASEPATH \
     --blanking 50 --StreamName RADjh1
     #--InputName $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/bxds \
     #--InputCT $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/ct.gz \
