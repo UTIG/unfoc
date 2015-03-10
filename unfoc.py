@@ -7,6 +7,7 @@
 # All output files are 4-byte network-order.
 #
 ## (DONE): remove queueing because cache misses cause it to be slow.
+# TODO: make stream name part of meta file?
 
 import os
 import gzip
@@ -31,7 +32,7 @@ enable_meta_index=True
 ################################################
 
 # from http://stackoverflow.com/questions/3160699/python-progress-bar
-def update_progress(n,total):
+def update_progress(n,total,label="Percent"):
     progress=float(n)/float(total)
     barLength = 20 # Modify this to change the length of the progress bar
     status = ""
@@ -280,7 +281,7 @@ def IncoStacks_gen(traces, ChannelSpecs, StackDepth, truncSweepLength=3200, bDoP
                 yield stack
                             
 # Read individual traces out of RADnh3 file        
-def read_RADnh3_gen(InputName, ChannelSpecs, ct, SweepLength=3437):
+def read_RADnh3_gen(InputName, ChannelSpecs, ctfile, SweepLength=3437, b_show_progress=False):
     radnh3_header_t = namedtuple('radnh3_header', 'nsamp nchan vr0 vr1 choff resvd1 resvd2')
     n=0
 
@@ -290,9 +291,13 @@ def read_RADnh3_gen(InputName, ChannelSpecs, ct, SweepLength=3437):
         choffs.add(((p1cs.chan0in-1)//2)*2)
         choffs.add(((p1cs.chan1in-1)//2)*2)
 
+    ct_gen = read_ct_gen(ctfile, b_show_progress)
 
     with open(InputName, 'r') as fd:
         while True:
+            # read ct file
+            seq = ct_gen.next()
+
             # read header
             buff = fd.read(8)
             if len(buff) < 8:
@@ -308,31 +313,62 @@ def read_RADnh3_gen(InputName, ChannelSpecs, ct, SweepLength=3437):
             if choff in choffs:
                 traces = numpy.fromfile(fd, dtype='>i2', count=SweepLength*2)
                 traces.shape = (2, SweepLength)
-                yield (choff+1, traces[0][...],ct['seq'][n])
-                yield (choff+2, traces[1][...],ct['seq'][n])
+                yield (choff+1, traces[0][...],seq)
+                yield (choff+2, traces[1][...],seq)
             else:
                 # Skip the rest of this record without yielding any values
                 fd.seek(4*SweepLength, os.SEEK_CUR)
-            if (n % 2400) == 0: 
-                update_progress(n,ct.shape[0])
             n += 1
 
+        if nseq and b_show_progress:
+            update_progress(nseq,nseq)
+            print "\n\n\n bnseq={}".format(nseq)
+        else:
+            print "\n\n\n cnseq={}".format(nseq)
+
 # Read individual traces out of RADjh1 files        
-def read_RADjh1_gen(InputName, ChannelSpecs, ct, SweepLength=3200):
+def read_RADjh1_gen(InputName, ChannelSpecs, ctfile, SweepLength=3200, b_show_progress=False):
     n=0
 
+    ct_gen = read_ct_gen(ctfile, b_show_progress)
+    nseq=None
     # Construct a list of all channel offsets we want
     with open('{}1'.format(InputName), 'r') as fd1, open('{}2'.format(InputName), 'r') as fd2:
-        ### Redundant.  GNG
-        while True and n < ct.shape[0]:
+        while n < ct.shape[0]:
+            seq = ct_gen.next()
             traces1 = numpy.fromfile(fd1, dtype='<i2', count=SweepLength)
             traces2 = numpy.fromfile(fd2, dtype='<i2', count=SweepLength)
-            yield (1, traces1 ,ct['seq'][n])
-            yield (2, traces2 ,ct['seq'][n])
-            if (n % 2400) == 0: 
-                update_progress(n,ct.shape[0])
-            n=n+1
+            yield (1, traces1, seq)
+            yield (2, traces2, seq)
+            n+=1
 
+
+def read_ct_gen(ctfile, b_show_progress=False, n_update_interval=2400):
+    # Read CT file
+    logging.debug('preloading ct file {0:s}'.format(ctfile))
+    try:
+        ct=numpy.loadtxt(ctfile,dtype={
+            'names':['P','S','T','seq','YY','MM','DD','hh','mm','ss','fs','ct'],
+            'formats':['|S8','|S8','|S8','int32','int16','int8','int8','int8','int8','int8','int8','int32']})
+    except KeyboardInterrupt as e:
+        # User pressed ctrl+c
+        sys.exit(0)
+    except Exception as e:
+        # Unhandled exception
+        raise e
+
+    nitems = ct.shape[0]
+    logging.debug('processing radar data with {0:d} raw traces'.format(ct.shape[0]))
+
+    for i in range(nitems):
+        if b_show_progress and (i % n_update_interval) == 0:
+           update_progress(i,nitems)
+
+        yield ct['seq'][i]
+
+    if b_show_progress:
+        update_progress(nitems, nitems)
+        print ""
 
 class DataFilterBase:
     def __init__(self, src):
@@ -498,6 +534,7 @@ def main(argv):
 ##    parser.add_argument('--QName')
 
 
+## TODO: give magname, metaname, and phsname default values?
 # filename of rectified output
     parser.add_argument('--MagName')
 # filename of phase output
@@ -571,35 +608,18 @@ def main(argv):
     ChannelSpecs = parse_channels( args.ChannelNum )
     logging.debug(ChannelSpecs)
 
-    # Read CT file
-    logging.debug('reading ct file {0:s}'.format(args.InputCT))
-    try:
-        ct=numpy.loadtxt(args.InputCT,dtype={
-            'names':['P','S','T','seq','YY','MM','DD','hh','mm','ss','fs','ct'],
-            'formats':['|S8','|S8','|S8','int32','int16','int8','int8','int8','int8','int8','int8','int32']})
-    except:
-        logging.error('failed to read ct file')
-        exit()
-    logging.debug('processing radar data with {0:d} raw traces'.format(ct.shape[0]))
-
     # Read traces from file
     # TODO: this if structure could be made more inherity GNG
     if args.StreamName == 'RADnh3':
-        tracegen = read_RADnh3_gen(args.InputName, ChannelSpecs, ct, args.SweepLength) 
+        tracegen = read_RADnh3_gen(args.InputName, ChannelSpecs, args.InputCT, args.SweepLength, args.progress) 
     elif args.StreamName == 'RADjh1':
-        tracegen = read_RADjh1_gen(args.InputName, ChannelSpecs, ct, args.SweepLength) 
+        tracegen = read_RADjh1_gen(args.InputName, ChannelSpecs, args.InputCT, args.SweepLength, args.progress) 
     else:
         logging.error('Unknown stream name {0:s}'.format(args.StreamName))
         exit()
-    
 
-    #i=1
-    #for trace in tracegen:
-    #    if i < 10:
-    #        print trace
-    #        i=i+1
-    #    else:
-    #        exit()
+        
+
     # Demultiplex stacks and generate coherently-stacked traces
     stackgen = Stacks_gen(tracegen, ChannelSpecs,args.StackDepth, args.SweepLength)
     # Dechirp coherent stacks
@@ -668,8 +688,6 @@ def main(argv):
                 outfiles[ rec[0] ].write_record( rec)
             else:
                 raise Exception("Invalid output channel %d" % rec[0] )
-
-    update_progress(ct.shape[0],ct.shape[0])
 
     for p1cs in ChannelSpecs:
         outfiles[ p1cs.chanout ].close()
