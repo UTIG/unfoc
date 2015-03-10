@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 #
+# unfoc.py: Unfocused Radar Processor
 # Output file for pik1 (4-byte signed integer, network order)
 # Dechirp the JPL and MIRS radars.
 #
 # All output files are 4-byte network-order.
 #
-## TODO: remove queueing because cache misses cause it to be slow.
+## (DONE): remove queueing because cache misses cause it to be slow.
 
 import os
 import gzip
@@ -68,8 +69,6 @@ class IncoStackState:
             phs = self.PhsStack.dostack( numpy.angle( Dechirped[1] ), Dechirped[2])
         if mag != None:
             mag = numpy.mean( mag[0]  , axis=0 )
-         #   print 'mag'
-         #   print mag
             if self.bDoPhs:
                 phs = phs[0][self.StackCenter,...]
             else:
@@ -334,9 +333,10 @@ def read_RADjh1_gen(InputName, ChannelSpecs, ct, SweepLength=3200):
                 update_progress(n,ct.shape[0])
             n=n+1
 
+# TODO: move this into the other file writing section. (meta)
 def write_sys(basepath, stream):
-    logging.debug('{}: writing {}/sys.ccn file'.format(__file__,basepath))
     StreamFileName='{0:s}/sys.ccn'.format(basepath)
+    logging.debug('writing sys file: {0:s}'.format(StreamFileName))
     with open(StreamFileName,'w') as StreamFD:
         StreamFD.write(stream + "\n")
 
@@ -489,22 +489,22 @@ def main(argv):
 # Length of each output sweep (in samples)
     parser.add_argument('--truncSweepLength', required=True, type=int)
 
-    parser.add_argument('--basepath', required=True)
+    parser.add_argument('--basepath', required=True, help='Base path for output files')
 
-# filename of real part of raw compressed waveform
-    parser.add_argument('--IName')
-# filename of imaginary part of raw compressed waveform
-    parser.add_argument('--QName')
-# filename of recitified output
+# GNG: these options are not used in unfoc
+## filename of real part of raw compressed waveform
+##    parser.add_argument('--IName')
+## filename of imaginary part of raw compressed waveform
+##    parser.add_argument('--QName')
+
+
+# filename of rectified output
     parser.add_argument('--MagName')
 # filename of phase output
     parser.add_argument('--PhsName')
-# filename for meta data output
-    parser.add_argument('--MetaName')
-# coherent stacking depth for this output
-    parser.add_argument('--StackDepth', required=True, type=int)
-# incoherent stacking depth for this output
-    parser.add_argument('--IncoDepth', required=True, type=int)
+    parser.add_argument('--MetaName',help='filename for meta data output')
+    parser.add_argument('--StackDepth', required=True, type=int,help='coherent stacking depth for this output')
+    parser.add_argument('--IncoDepth', required=True, type=int,help='incoherent stacking depth for this output')
 # stacks are centered on (or before) multiples of CenterMult
     parser.add_argument('--CenterMult', required=True, type=int)
 # Only output a sweep if MaxDepth sweeps could be stacked.
@@ -517,17 +517,16 @@ def main(argv):
     parser.add_argument('--StartSamp', type=int, default=1)
 # Output sweep samples ending with this one
     parser.add_argument('--EndSamp', type=int)
-# Output scale default is 1000*dB
-    parser.add_argument('--Scale', type=int, default=20000)
-# Samples at the top of the record to blank out
-    parser.add_argument('--blanking', type=int, default=50)
-# Stream name
-    parser.add_argument('--StreamName', required=True)
-# bandpass sampling, false is for legacy hicars.
+    parser.add_argument('--Scale', type=int, default=20000, help='output scale factor: default is 1000*dB')
+    parser.add_argument('--blanking', type=int, default=50, help='blank out (zero) this many samples at the top (beginning) of the record')
+# Stream name.  Required to know data format
+    parser.add_argument('--StreamName', required=True,help='Stream name for input data')
+# bandpass sampling, false is for legacy hicars. true is for marfa
 # Disables cinterp and flips the chirp
     parser.add_argument('--BandpassSamplingMode', action='store_true')
-# Print debugging messages
-    parser.add_argument('--debug', action='store_true')
+    parser.add_argument('--debug', action='store_true',help='Print debugging messages')
+    parser.add_argument('--progress', action='store_true',help='Show progress bar')
+
 
     args = parser.parse_args()
 
@@ -573,21 +572,24 @@ def main(argv):
     logging.debug(ChannelSpecs)
 
     # Read CT file
-    logging.debug('reading ct file')
+    logging.debug('reading ct file {0:s}'.format(args.InputCT))
     try:
-        ct=numpy.loadtxt(args.InputCT,dtype={'names':['P','S','T','seq','YY','MM','DD','hh','mm','ss','fs','ct'],'formats':['|S8','|S8','|S8','int32','int16','int8','int8','int8','int8','int8','int8','int32']})
+        ct=numpy.loadtxt(args.InputCT,dtype={
+            'names':['P','S','T','seq','YY','MM','DD','hh','mm','ss','fs','ct'],
+            'formats':['|S8','|S8','|S8','int32','int16','int8','int8','int8','int8','int8','int8','int32']})
     except:
         logging.error('failed to read ct file')
         exit()
     logging.debug('processing radar data with {0:d} raw traces'.format(ct.shape[0]))
 
     # Read traces from file
+    # TODO: this if structure could be made more inherity GNG
     if args.StreamName == 'RADnh3':
         tracegen = read_RADnh3_gen(args.InputName, ChannelSpecs, ct, args.SweepLength) 
     elif args.StreamName == 'RADjh1':
         tracegen = read_RADjh1_gen(args.InputName, ChannelSpecs, ct, args.SweepLength) 
     else:
-        logging.error('{}: Bad stream name {}'.format(__file__,args.StreamName))
+        logging.error('Unknown stream name {0:s}'.format(args.StreamName))
         exit()
     
 
