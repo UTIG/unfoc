@@ -443,6 +443,7 @@ class  PIK1OutputFile(ComplexOutputFile):
         self.MetaOutFD.write("#StartSamp = "  + str(args.StartSamp) + "\n")
         self.MetaOutFD.write("#EndSamp = "    + str(args.EndSamp) + "\n")
         self.MetaOutFD.write("#Scale = "      + str(self.MagScale) + "\n")
+        self.MetaOutFD.write("#StreamName = {0:s}\n" + args.StreamName)
         self.MetaOutFD.write("#Log = TRUE\n")
 
 
