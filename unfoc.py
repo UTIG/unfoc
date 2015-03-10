@@ -189,7 +189,7 @@ class StackState:
 
             if bDo0 and bDo1:
                 if not (self.seq0 == self.seq1):
-                    print 'Mismatch! Channel 0 {} Channel 1 {}'.format(self.seq0,self.seq1)
+                    logging.info('SEQ Mismatch: ch0={} ch1={}'.format(self.seq0,self.seq1))
                 array_out1 = scale0 * self.fullstacks0[-1] + scale1 * self.fullstacks1[-1]
                 seq_out=self.seq0[-1]
             elif bDo0 and not bDo1:
@@ -276,10 +276,6 @@ def IncoStacks_gen(traces, ChannelSpecs, StackDepth, truncSweepLength=3200, bDoP
 
         if trace[0] in ss0:
             stack = ss0[ trace[0] ].dostack( trace )
-            #print 'IncoStacks_gen.trace'
-            #print trace
-            #print 'IncoStacks_gen.stack'
-            #print stack
 
             if stack != None:
                 yield stack
@@ -328,6 +324,7 @@ def read_RADjh1_gen(InputName, ChannelSpecs, ct, SweepLength=3200):
 
     # Construct a list of all channel offsets we want
     with open('{}1'.format(InputName), 'r') as fd1, open('{}2'.format(InputName), 'r') as fd2:
+        ### Redundant.  GNG
         while True and n < ct.shape[0]:
             traces1 = numpy.fromfile(fd1, dtype='<i2', count=SweepLength)
             traces2 = numpy.fromfile(fd2, dtype='<i2', count=SweepLength)
@@ -338,7 +335,7 @@ def read_RADjh1_gen(InputName, ChannelSpecs, ct, SweepLength=3200):
             n=n+1
 
 def write_sys(basepath, stream):
-    print '{}: writing {}/sys.ccn file'.format(__file__,basepath)
+    logging.debug('{}: writing {}/sys.ccn file'.format(__file__,basepath))
     StreamFileName='{0:s}/sys.ccn'.format(basepath)
     with open(StreamFileName,'w') as StreamFD:
         StreamFD.write(stream + "\n")
@@ -539,7 +536,7 @@ def main(argv):
     else:
         LOGLEVEL=logging.INFO
     logging.basicConfig(level=LOGLEVEL,
-                    format='LOG: %(relativeCreated)8d [%(levelname)-5s] (%(process)d %(threadName)-10s) %(message)s',
+                    format='{0:s}: %(relativeCreated)8d [%(levelname)-5s] (%(process)d %(threadName)-10s) %(message)s'.format(__file__),
                     )
 
     if args.EndSamp == 0 or args.EndSamp > args.SweepLength:
@@ -576,13 +573,13 @@ def main(argv):
     logging.debug(ChannelSpecs)
 
     # Read CT file
-    print 'reading ct file'
+    logging.debug('reading ct file')
     try:
         ct=numpy.loadtxt(args.InputCT,dtype={'names':['P','S','T','seq','YY','MM','DD','hh','mm','ss','fs','ct'],'formats':['|S8','|S8','|S8','int32','int16','int8','int8','int8','int8','int8','int8','int32']})
     except:
-        print 'failed to read ct file'
+        logging.error('failed to read ct file')
         exit()
-    print 'processing radar data with {} raw traces'.format(ct.shape[0])
+    logging.debug('processing radar data with {0:d} raw traces'.format(ct.shape[0]))
 
     # Read traces from file
     if args.StreamName == 'RADnh3':
@@ -590,7 +587,7 @@ def main(argv):
     elif args.StreamName == 'RADjh1':
         tracegen = read_RADjh1_gen(args.InputName, ChannelSpecs, ct, args.SweepLength) 
     else:
-        print '{}: Bad stream name {}'.format(__file__,args.StreamName)
+        logging.error('{}: Bad stream name {}'.format(__file__,args.StreamName))
         exit()
     
 
