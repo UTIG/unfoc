@@ -2,7 +2,13 @@
 
 set BASEPATH=/disk/tio/tmp
 
-time python2.7 unfocused_radar_processer.py \
+if ("$1" != "") then
+    set BASEPATH="$BASEPATH/$1"
+    echo "${0}: BASEPATH=$BASEPATH"
+endif
+
+
+time python2.7 unfoc.py \
     --InputName $WAIS/orig/xlob/MBL/MKB2l/Y76a/RADnh3/bxds \
     --InputCT $WAIS/orig/xlob/MBL/MKB2l/Y76a/RADnh3/ct.gz \
     --ChannelNum 2 \
@@ -20,6 +26,8 @@ time python2.7 unfocused_radar_processer.py \
         --EndSamp 3437 \
     --basepath $BASEPATH \
     --BandpassSamplingMode \
-    --blanking 200 --StreamName RADnh3
+    --blanking 200 --StreamName RADnh3 \
+    --progress \
+    --debug
     #--InputName $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/bxds \
     #--InputCT $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/ct.gz \

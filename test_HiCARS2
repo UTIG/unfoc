@@ -17,6 +17,7 @@ time python2.7 unfoc.py \
         --StartSamp 1 \
         --EndSamp 3437 \
     --basepath $BASEPATH \
-    --blanking 200 --StreamName RADnh3
+    --blanking 200 --StreamName RADnh3 \
+    --debug
     #--InputName $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/bxds \
     #--InputCT $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/ct.gz \
