@@ -333,12 +333,6 @@ def read_RADjh1_gen(InputName, ChannelSpecs, ct, SweepLength=3200):
                 update_progress(n,ct.shape[0])
             n=n+1
 
-# TODO: move this into the other file writing section. (meta)
-def write_sys(basepath, stream):
-    StreamFileName='{0:s}/sys.ccn'.format(basepath)
-    logging.debug('writing sys file: {0:s}'.format(StreamFileName))
-    with open(StreamFileName,'w') as StreamFD:
-        StreamFD.write(stream + "\n")
 
 class DataFilterBase:
     def __init__(self, src):
@@ -415,9 +409,15 @@ class  PIK1OutputFile(ComplexOutputFile):
         self.MetaOutFD.write("#Scale = "      + str(self.MagScale) + "\n")
         self.MetaOutFD.write("#Log = TRUE\n")
 
+
         #self.record_increment=self.StackDepth*self.IncoDepth
         #self.record=self.record_increment/2
-        
+
+        # Write sys.ccn file, then close it.  
+        StreamFileName='{0:s}/sys.ccn'.format(basepath)
+        logging.debug('writing sys file: {0:s}'.format(StreamFileName))
+        with open(StreamFileName,'w') as StreamFD:
+            StreamFD.write(args.StreamName + "\n")
         
 
     def write_record(self, IncoStacked):
@@ -608,9 +608,6 @@ def main(argv):
     # Incoherently stack 
     istackgen = IncoStacks_gen(dechirpgen, ChannelSpecs, args.IncoDepth, args.truncSweepLength, bDoPhs=args.PhsName != None)
 
-    #Write out sys.ccn file with stream information
-    write_sys(args.basepath,args.StreamName)
-    
     outfiles = {}
     #for p1cs in ChannelSpecs:
     #    outfiles[ p1cs.chanout ] = PIK1OutputFile( p1src, args.Scale )
