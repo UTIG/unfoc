@@ -24,6 +24,12 @@ import cProfile
 
 from parse_channels import parse_channels
 
+# Named tuple definitions for data passed between generator pipeline stages
+# A raw sweep/stack with only one real component
+ntRawSweep  = namedtuple('ntRawSweep', 'chan samples seq')
+# A dechirped sweep with separate magnitude and phase
+ntMagPhaseSweep = namedtuple('ntMagPhaseSweep','chan mag phs seq')
+
 ################################################
 # Enable metadata index writing.  
 # This should normally be disabled only for legacy testing.
@@ -74,7 +80,7 @@ class IncoStackState:
                 phs = phs[0][self.StackCenter,...]
             else:
                 phs = None
-            return (Dechirped[0],mag, phs,Dechirped[2])
+            return ntMagPhaseSweep(Dechirped.chan,mag, phs,Dechirped.seq)
 
 class QueueSource:
     """ Gets records from a python Queue to be used as an input to a filter """
@@ -109,9 +115,9 @@ def cinterp(Data, index):
 def denoise_and_dechirp(Stacked, Rchirp, blanking, truncSweepLength, bDoCinterp = True):
     Stacked[0:blanking] = numpy.zeros(blanking)
 
-#find peak energy below blanking samples
-## [n,m]=sort(Stacked);
-## shifter=abs((m(truncSweepLength)));
+    #find peak energy below blanking samples
+    ## [n,m]=sort(Stacked);
+    ## shifter=abs((m(truncSweepLength)));
     shifter=int(numpy.median(numpy.argmax(Stacked)));
     Stacked=numpy.roll(Stacked,-shifter);
         
@@ -134,10 +140,11 @@ def denoise_and_dechirp(Stacked, Rchirp, blanking, truncSweepLength, bDoCinterp 
 def denoise_and_dechirp_gen(cohstacks, Rchirp, blanking, truncSweepLength, bDoCinterp = True):
     for trace in cohstacks:
         Dechirped = denoise_and_dechirp(trace[1][0:truncSweepLength], Rchirp, blanking, truncSweepLength, bDoCinterp)
-        yield (trace[0], Dechirped, trace[2])
+        # We call it a ntRawSweep because it hasn't been separated into magnitude and phase
+        yield ntRawSweep(trace[0], Dechirped, trace[2])
 
 class StackState1:
-    """ State for stacking traces into blocks """
+    """ State for stacking raw traces into blocks """
     def __init__(self, StackDepth, SweepLength, presum=True):
         self.StackDepth = StackDepth
         self.stacks = numpy.zeros((StackDepth, SweepLength), dtype=numpy.float64)
@@ -151,6 +158,7 @@ class StackState1:
         self.count += 1
         if self.idx >= self.StackDepth:
             self.idx = 0
+            # TODO: I'm not sure why this should be a separate if statement.  GNG
             if self.presum:
                 return (self.stacks.sum(axis=0),seq-(self.StackDepth/2))
             else:
@@ -166,8 +174,8 @@ class StackState:
 
         self.fullstacks0 = []
         self.fullstacks1 = []
-        self.seq0 = []
-        self.seq1 = []
+        #self.seq0 = []
+        #self.seq1 = []
 
     def getstack(self):
         # Logic lifted from read_and_stack.cc
@@ -184,34 +192,36 @@ class StackState:
             # assert self.fullstacks0[-1].shape[0] == self.StackDepth?
 
             if bDo0 and bDo1:
+                seq0 = self.fullstacks0[-1][1]
+                seq1 = self.fullstacks1[-1][1]
                 if self.seq0[-1] != self.seq1[-1]:
-                    logging.info('SEQ Mismatch: ch0={} ch1={}'.format(self.seq0,self.seq1))
-                array_out1 = scale0 * self.fullstacks0[-1] + scale1 * self.fullstacks1[-1]
-                seq_out=self.seq0[-1]
+                    logging.info('SEQ Mismatch: ch0={} ch1={}'.format(seq0, seq1) )
+                array_out1 = scale0 * self.fullstacks0[-1][0] + scale1 * self.fullstacks1[-1][0]
+                seq_out=seq0
             elif bDo0 and not bDo1:
-                array_out1 = scale0 * self.fullstacks0[-1]
-                seq_out=self.seq0[-1]
+                array_out1 = scale0 * self.fullstacks0[-1][0]
+                seq_out=self.fullstacks0[-1][1]
             elif not bDo0 and bDo1:
-                array_out1 = scale1 * self.fullstacks1[-1]
-                seq_out=self.seq1[-1]
+                array_out1 = scale1 * self.fullstacks1[-1][0]
+                seq_out=self.fullstacks0[-1][1]
 
             if bReady0: 
                 self.fullstacks0.pop();
-                self.seq0.pop();
             if bReady1: 
                 self.fullstacks1.pop();
-                self.seq1.pop();
-            return (self.ChannelSpec.chanout,array_out1,seq_out)
+            return ntRawSweep(self.ChannelSpec.chanout,array_out1,seq_out)
  
     def addstack( self, chan, stack ):
         if len(self.fullstacks0) >= 1000 or len(self.fullstacks1) >= 1000:
-            raise Exception("overflow: p1cs={4:s} fullstacks0={0:d} fullstacks1={1:d} count0={2:d} count1={3:d}".format(len(self.fullstacks0), len(self.fullstacks1), self.count0, self.count1, self.ChannelSpec) )
+            raise AssertionError("overflow: p1cs={4:s} fullstacks0={0:d} fullstacks1={1:d} count0={2:d} count1={3:d}".format(len(self.fullstacks0), len(self.fullstacks1), self.count0, self.count1, self.ChannelSpec) )
         if self.ChannelSpec.chan0in == chan:
-            self.fullstacks0.insert(0,stack[0])
-            self.seq0.insert(0,stack[1])
+            self.fullstacks0.insert(0,stack)
+            #self.fullstacks0.insert(0,stack[0])
+            #self.seq0.insert(0,stack[1])
         elif self.ChannelSpec.chan1in == chan:
-            self.fullstacks1.insert(0,stack[0])
-            self.seq1.insert(0,stack[1])
+            self.fullstacks1.insert(0,stack)
+            #self.fullstacks1.insert(0,stack[0])
+            #self.seq1.insert(0,stack[1])
         else:
             # no change in state, so no need for getstacks
             return None
@@ -240,13 +250,13 @@ def Stacks_gen(traces, ChannelSpecs, StackDepth, SweepLength=3437):
         # Iterate over all the channel specs and see which ones need to be stacked
 
         if trace[0] in ss0:
-            cohstack = ss0[ trace[0] ].dostack(numpy.float64(trace[1]),trace[2])
+            cohstack = ss0[ trace.chan ].dostack(numpy.float64(trace.samples),trace.seq)
 
             if cohstack != None:
                 for (i,p1cs) in enumerate(ChannelSpecs):
                     # Test to prevent extraneous calls to addstack()
-                    if p1cs.chan0in == trace[0] or p1cs.chan1in == trace[0]:
-                        result = stackstates[i].addstack(trace[0],cohstack)
+                    if p1cs.chan0in == trace.chan or p1cs.chan1in == trace.chan:
+                        result = stackstates[i].addstack(trace.chan,cohstack)
                         # If this stack state yielded a full stack, yield it
                         if result != None:
                             yield result
@@ -275,7 +285,8 @@ def IncoStacks_gen(traces, ChannelSpecs, StackDepth, truncSweepLength=3200, bDoP
 
             if stack != None:
                 yield stack
-                            
+                       
+     
 # Read individual traces out of RADnh3 file        
 def read_RADnh3_gen(InputName, ChannelSpecs, ctfile, SweepLength=3437, b_show_progress=False):
     radnh3_header_t = namedtuple('radnh3_header', 'nsamp nchan vr0 vr1 choff resvd1 resvd2')
@@ -309,8 +320,8 @@ def read_RADnh3_gen(InputName, ChannelSpecs, ctfile, SweepLength=3437, b_show_pr
             if choff in choffs:
                 traces = numpy.fromfile(fd, dtype='>i2', count=SweepLength*2)
                 traces.shape = (2, SweepLength)
-                yield (choff+1, traces[0][...],seq)
-                yield (choff+2, traces[1][...],seq)
+                yield ntRawSweep(choff+1, traces[0][...],seq)
+                yield ntRawSweep(choff+2, traces[1][...],seq)
             else:
                 # Skip the rest of this record without yielding any values
                 fd.seek(4*SweepLength, os.SEEK_CUR)
@@ -334,8 +345,8 @@ def read_RADjh1_gen(InputName, ChannelSpecs, ctfile, SweepLength=3200, b_show_pr
             seq = ct_gen.next()
             traces1 = numpy.fromfile(fd1, dtype='<i2', count=SweepLength)
             traces2 = numpy.fromfile(fd2, dtype='<i2', count=SweepLength)
-            yield (1, traces1, seq)
-            yield (2, traces2, seq)
+            yield ntRawSweep(1, traces1, seq)
+            yield ntRawSweep(2, traces2, seq)
             n+=1
 
 
