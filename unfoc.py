@@ -2,12 +2,11 @@
 #
 # unfoc.py: Unfocused Radar Processor
 # Output file for pik1 (4-byte signed integer, network order)
-# Dechirp the JPL and MIRS radars.
 #
 # All output files are 4-byte network-order.
 #
 ## (DONE): remove queueing because cache misses cause it to be slow.
-# TODO: make stream name part of meta file?
+# TODO: if no CT file is provided, provide fake CT
 
 import os
 import gzip
@@ -66,21 +65,20 @@ class IncoStackState:
         self.PhsStack        = StackState1(StackDepth, truncSweepLength, False) # phase
         self.bDoPhs = bDoPhs
         self.StackCenter = int(numpy.fix( (self.StackDepth/2+0.5) ))
-        #print 'StackCenter {}'.format(self.StackCenter)
-        
+
     def dostack(self, Dechirped):
-        """ Trace is a complex, dechirped trace """
-        mag = self.IncoherentStack.dostack( numpy.abs( Dechirped[1]), Dechirped[2])
+        """ Trace Dechirped[1] (Dechirped.samples) is a complex, dechirped trace """
+        mag = self.IncoherentStack.dostack( numpy.abs( Dechirped.samples), Dechirped.seq )
 
         if self.bDoPhs:
-            phs = self.PhsStack.dostack( numpy.angle( Dechirped[1] ), Dechirped[2])
+            phs = self.PhsStack.dostack( numpy.angle( Dechirped.samples ), Dechirped.seq )
         if mag != None:
             mag = numpy.mean( mag[0]  , axis=0 )
             if self.bDoPhs:
                 phs = phs[0][self.StackCenter,...]
             else:
                 phs = None
-            return ntMagPhaseSweep(Dechirped.chan,mag, phs,Dechirped.seq)
+            return ntMagPhaseSweep(Dechirped.chan,mag,phs,Dechirped.seq)
 
 class QueueSource:
     """ Gets records from a python Queue to be used as an input to a filter """
@@ -140,8 +138,8 @@ def denoise_and_dechirp(Stacked, Rchirp, blanking, truncSweepLength, bDoCinterp 
 def denoise_and_dechirp_gen(cohstacks, Rchirp, blanking, truncSweepLength, bDoCinterp = True):
     for trace in cohstacks:
         Dechirped = denoise_and_dechirp(trace[1][0:truncSweepLength], Rchirp, blanking, truncSweepLength, bDoCinterp)
-        # We call it a ntRawSweep because it hasn't been separated into magnitude and phase
-        yield ntRawSweep(trace[0], Dechirped, trace[2])
+        # Use ntRawSweep because it hasn't been separated into magnitude and phase
+        yield ntRawSweep(trace.chan, Dechirped, trace.seq)
 
 class StackState1:
     """ State for stacking raw traces into blocks """
@@ -160,6 +158,7 @@ class StackState1:
             self.idx = 0
             # TODO: I'm not sure why this should be a separate if statement.  GNG
             if self.presum:
+                # I don't really like the idea of doing math on the sequence number. GNG
                 return (self.stacks.sum(axis=0),seq-(self.StackDepth/2))
             else:
                 return (self.stacks,seq)
@@ -174,8 +173,6 @@ class StackState:
 
         self.fullstacks0 = []
         self.fullstacks1 = []
-        #self.seq0 = []
-        #self.seq1 = []
 
     def getstack(self):
         # Logic lifted from read_and_stack.cc
@@ -216,12 +213,8 @@ class StackState:
             raise AssertionError("overflow: p1cs={4:s} fullstacks0={0:d} fullstacks1={1:d} count0={2:d} count1={3:d}".format(len(self.fullstacks0), len(self.fullstacks1), self.count0, self.count1, self.ChannelSpec) )
         if self.ChannelSpec.chan0in == chan:
             self.fullstacks0.insert(0,stack)
-            #self.fullstacks0.insert(0,stack[0])
-            #self.seq0.insert(0,stack[1])
         elif self.ChannelSpec.chan1in == chan:
             self.fullstacks1.insert(0,stack)
-            #self.fullstacks1.insert(0,stack[0])
-            #self.seq1.insert(0,stack[1])
         else:
             # no change in state, so no need for getstacks
             return None
@@ -327,11 +320,6 @@ def read_RADnh3_gen(InputName, ChannelSpecs, ctfile, SweepLength=3437, b_show_pr
                 fd.seek(4*SweepLength, os.SEEK_CUR)
             n += 1
 
-        if nseq and b_show_progress:
-            update_progress(nseq,nseq)
-            print "\n\n\n bnseq={}".format(nseq)
-        else:
-            print "\n\n\n cnseq={}".format(nseq)
 
 # Read individual traces out of RADjh1 files        
 def read_RADjh1_gen(InputName, ChannelSpecs, ctfile, SweepLength=3200, b_show_progress=False):
@@ -341,7 +329,7 @@ def read_RADjh1_gen(InputName, ChannelSpecs, ctfile, SweepLength=3200, b_show_pr
     nseq=None
     # Construct a list of all channel offsets we want
     with open('{}1'.format(InputName), 'r') as fd1, open('{}2'.format(InputName), 'r') as fd2:
-        while n < ct.shape[0]:
+        while True: #n < ct.shape[0]:
             seq = ct_gen.next()
             traces1 = numpy.fromfile(fd1, dtype='<i2', count=SweepLength)
             traces2 = numpy.fromfile(fd2, dtype='<i2', count=SweepLength)
@@ -450,7 +438,7 @@ class  PIK1OutputFile(ComplexOutputFile):
         self.MetaOutFD.write("#StartSamp = "  + str(args.StartSamp) + "\n")
         self.MetaOutFD.write("#EndSamp = "    + str(args.EndSamp) + "\n")
         self.MetaOutFD.write("#Scale = "      + str(self.MagScale) + "\n")
-        self.MetaOutFD.write("#StreamName = {0:s}\n" + args.StreamName)
+        self.MetaOutFD.write("#StreamName = {0:s}\n".format(args.StreamName))
         self.MetaOutFD.write("#Log = TRUE\n")
 
 
