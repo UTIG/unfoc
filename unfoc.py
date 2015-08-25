@@ -539,17 +539,17 @@ def main(argv):
     parser.add_argument('--StackDepth', required=True, type=int,help='coherent stacking depth for this output')
     parser.add_argument('--IncoDepth', required=True, type=int,help='incoherent stacking depth for this output')
 # stacks are centered on (or before) multiples of CenterMult
-    parser.add_argument('--CenterMult', required=True, type=int)
+    parser.add_argument('--CenterMult', required=False, type=int)
 # Only output a sweep if MaxDepth sweeps could be stacked.
-    parser.add_argument('--MaxDepth', required=True, type=int)
+    parser.add_argument('--MaxDepth', required=False, type=int)
 # Output only sweeps with centers on or after this sweep
     parser.add_argument('--StartSweep', type=int, default=1)
 # Output only sweeps with centers before or on this sweep
-    parser.add_argument('--EndSweep', type=int)
+    parser.add_argument('--EndSweep', type=int, default=sys.maxint)
 # Output sweep samples starting with this one
     parser.add_argument('--StartSamp', type=int, default=1)
 # Output sweep samples ending with this one
-    parser.add_argument('--EndSamp', type=int)
+    parser.add_argument('--EndSamp', type=int, default=sys.maxint)
     parser.add_argument('--Scale', type=int, default=20000, help='output scale factor: default is 1000*dB')
     parser.add_argument('--blanking', type=int, default=50, help='blank out (zero) this many samples at the top (beginning) of the record')
 # Stream name.  Required to know data format
@@ -576,7 +576,7 @@ def main(argv):
     if args.StartSamp > args.EndSamp:
         sys.exit('{}: bad start and end samples.'.format(__file__))
 
-    if args.StackDepth <= 0 or args.CenterMult <= 0 or args.MaxDepth <= 0:
+    if args.StackDepth <= 0:
         sys.exit('{}: all depths must be positive.'.format(__file___))
 
     if args.SweepLength <= 0:
