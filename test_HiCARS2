@@ -1,23 +1,13 @@
 #!/bin/csh
 
-set BASEPATH=/disk/tio/tmp
 time python2.7 unfoc.py \
-    --InputName $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/bxds \
-    --InputCT $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/ct.gz \
-    --ChannelNum 2 \
-    --SweepLength 3437 \
-    --truncSweepLength 3200 \
-    --MagName MagH2.out \
-    --MetaName MetaH2.out \
+    --infile $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/bxds \
+    --channel_def 2 \
+    --output_samples 3200 \
+    --outdir . \
     --StackDepth 10 \
     --IncoDepth 5 \
-    --CenterMult 10 \
-    --MaxDepth 150 \
     --Scale 20000 \
-        --StartSamp 1 \
-        --EndSamp 3437 \
-    --basepath $BASEPATH \
-    --blanking 200 --StreamName RADnh3 \
-    --debug
+    --blanking 200
     #--InputName $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/bxds \
     #--InputCT $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/ct.gz \

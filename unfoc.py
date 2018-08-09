@@ -110,7 +110,10 @@ def denoise_and_dechirp(trace, # type: np.ndarray
     # type: (...) -> np.ndarray
 
     # Input trace is a 1 x output_samples array.
-    trace[0:blanking] = np.zeros(blanking)
+    if (blanking >= 0):
+        trace[:blanking] = np.zeros(blanking)
+    else:
+        trace[-blanking:] = np.zeros(len(trace)+blanking)
 
     #find peak energy below blanking samples
     ## [n,m]=sort(trace);
@@ -522,8 +525,8 @@ def get_ref_chirp(bandpass, trunc_sweep_length):
 def get_hfilter(trunc_sweep_length):
     # type: (int) -> np.ndarray
     # Convert MHz to samples
-    min_freq = round(2.5 * trunc_sweep_length / 50)
-    max_freq = round(17.5 * trunc_sweep_length / 50)
+    min_freq = int(round(2.5 * trunc_sweep_length / 50))
+    max_freq = int(round(17.5 * trunc_sweep_length / 50))
     dfreq = max_freq - min_freq + 1
     hamming = np.sin(np.linspace(0, 1, num=dfreq) * np.pi)
     hfilter = np.hstack((np.zeros(min_freq),
