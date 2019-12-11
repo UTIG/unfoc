@@ -1,0 +1,18 @@
+[run]
+branch = False
+#include = /media/ICE/code/xped/*
+#          /home/qc-kpr/*
+#          /media/ICE/syst/linux/src/breakout/ELSA/*
+#          /media/ICE/syst/linux/bin/*
+
+
+#    ../SHARAD/SHARADEnv.py
+
+omit =
+    # omit anything in a .local directory anywhere
+    */.local/*
+    # omit everything in /usr
+    /usr/*
+
+#disable_warnings = module-not-imported
+

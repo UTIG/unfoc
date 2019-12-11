@@ -1,13 +1,19 @@
 #!/bin/csh
 
-time python2.7 unfoc.py \
+# Test a RADnh3 stream
+# Note: all HiCARS2 streams are RADnh3, but not all RADnh3 are HiCARS2
+
+set OUTDIR=out_RADnh3
+mkdir -p $OUTDIR
+time python2.7 ../unfoc.py \
     --infile $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/bxds \
     --channel_def 2 \
     --output_samples 3200 \
-    --outdir . \
+    --outdir $OUTDIR \
     --StackDepth 10 \
     --IncoDepth 5 \
     --Scale 20000 \
-    --blanking 200
+    --blanking 200 \
+    --output_phases
     #--InputName $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/bxds \
     #--InputCT $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/ct.gz \
