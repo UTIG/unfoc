@@ -125,11 +125,15 @@ def denoise_and_dechirp(trace, # type: np.ndarray
 
     if do_cinterp:
         # Remove five samples per cycle problem
-        DFT = cinterp(DFT, output_samples * (1.0/5))
-        DFT = cinterp(DFT, output_samples * (1 - 1.0/5))
+        n1 = int(np.round(output_samples * (1.0/5)))
+        n2 = output_samples - n1
+        DFT = cinterp(DFT, n1)
+        DFT = cinterp(DFT, n2)
         # Remove the first harmonic for five samples
-        DFT = cinterp(DFT, output_samples * (2.0/5))
-        DFT = cinterp(DFT, output_samples * (1 - 2.0/5))
+        n1 = int(np.round(output_samples * (2.0/5)))
+        n2 = output_samples - n1
+        DFT = cinterp(DFT, n1)
+        DFT = cinterp(DFT, n2)
 
     # Do the dechirp
     Product = np.multiply(ref_chirp, DFT)
@@ -398,8 +402,7 @@ def read_RADnhx_gen(input_filename, channel_specs):
                 try:
                     traces.shape = (2, input_samples)
                 except ValueError:
-                    # didn't get enough data.
-                    break
+                    break # didn't get enough data.
 
                 # no use yet for headers....
                 yield Trace(choff+1, traces[0][...])#, header, radnhx_header)
@@ -538,11 +541,8 @@ def get_hfilter(trunc_sweep_length):
 
 def main(args):
     # type: (Any) -> None
-    if args.debug:
-        LOGLEVEL=logging.DEBUG
-    else:
-        LOGLEVEL=logging.INFO
-    logging.basicConfig(level=LOGLEVEL,
+    LOGLEVEL = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(level=LOGLEVEL, stream=sys.stdout,
                     format='pik1: %(relativeCreated)8d [%(levelname)-5s] (%(process)d %(threadName)-10s) %(message)s',
                    )
 
@@ -574,6 +574,8 @@ def main(args):
                                 args.output_samples, do_phase=args.output_phases)
 
     # Initialize output files
+    if not os.path.exists(args.outdir):
+        os.makedirs(args.outdir)
     outfiles = {}
     for p1cs in channel_specs:
         outfiles[p1cs.chanout] = PIK1OutputFile(args.outdir,
@@ -583,11 +585,13 @@ def main(args):
                                                 args.IncoDepth)
         outfiles[p1cs.chanout].open(args.infile, do_phase=args.output_phases)
 
-    for rec in istackgen:
+    for i, rec in enumerate(istackgen):
         if rec.channel in outfiles:
             outfiles[rec.channel].write_record(rec)
         else:
             raise Exception("Invalid output channel %d" % rec.channel)
+        if args.nmax is not None and i >= args.nmax:
+            break
 
     for p1cs in channel_specs:
         outfiles[p1cs.chanout].close()
@@ -621,13 +625,15 @@ if __name__ == "__main__":
                         help="output phase, in addition to magnitude")
     parser.add_argument('--bandpass', action='store_true',
                         help='bandpass sampling, false is for legacy hicars. Disables cinterp and flips the chirp')
+    parser.add_argument('--nmax', default=0, type=int,
+                        help="Maximum number of stacks to output (usually used for testing")
     parser.add_argument('--debug', action='store_true',
                         help='Print debugging messages')
 
     args = parser.parse_args()
 
     do_profile = False
-    if do_profile:
+    if do_profile: # pragma: no cover
         import os
         prof_file = "/tmp/pik1b.{0:d}.prof".format(os.getpid())
         cProfile.run('main(args)', prof_file)
