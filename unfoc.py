@@ -10,18 +10,19 @@ import argparse
 from collections import namedtuple
 import cProfile
 import logging
-import numpy as np
 import os
-import Queue
-from scipy import signal
 import struct
 import sys
+import Queue
+
+import numpy as np
+from scipy import signal
+
 try:
     import typing
     from typing import Any, BinaryIO, Dict, Generator, List, Optional, Set, Tuple
-except:
-    # Not installed on melt ...
-    pass
+except ImportError: #pragma: no cover
+    pass  # Not installed on melt ...
 
 from parse_channels import parse_channels, PIK1ChannelSpec
 
@@ -590,7 +591,7 @@ def main(args):
             outfiles[rec.channel].write_record(rec)
         else:
             raise Exception("Invalid output channel %d" % rec.channel)
-        if args.nmax is not None and i >= args.nmax:
+        if args.nmax > 0 and i >= args.nmax:
             break
 
     for p1cs in channel_specs:
