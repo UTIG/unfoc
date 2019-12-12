@@ -4,9 +4,9 @@ import collections
 try:
     import typing
     from typing import List, Union
-except:
-    # Not installed on melt ...
-    pass
+except ImportError: #pragma: no cover
+    pass # Not installed on melt ...
+
 
 
 # This is a way of mapping from input channels to output channels.
@@ -52,21 +52,21 @@ def parse_channels(chanstr):
 # Test
 def main():
     # type: () -> int
-    print parse_channels("1")
+    print(parse_channels("1"))
 
     # This should fail
     try:
         parse_channels("1.2")
-        exit(1)
+        exit(1) # pragma: no cover
     except ValueError as e:
         pass
 
-    print parse_channels("[1,2,3,4,5;6,7,8.0,9,10]")
-    print parse_channels("[1,2,3,4,5]")
+    print(parse_channels("[1,2,3,4,5;6,7,8.0,9,10]"))
+    print(parse_channels("[1,2,3,4,5]"))
 
     for s in "[1,1,1,3,1] [2,2,1,4,1] [5,1,1,0,0;7,3,1,0,0] [6,2,1,0,0;8,4,1,0,0]".split(" "):
-        print "s: %s" % s
-        print parse_channels(s)
+        x = parse_channels(s)
+        print("s: {:s}\n{:s}".format(s, str(x)))
 
     return 0
 
