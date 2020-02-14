@@ -13,7 +13,8 @@ import logging
 import os
 import struct
 import sys
-import Queue
+
+#import Queue
 
 import numpy as np
 from scipy import signal
@@ -334,13 +335,16 @@ def get_radar_stream(filename):
         # TODO: This check should only  happen once, not every read!!
         # Check it then set a flag and move the file pointer back to the start!
         # Check the version byte and see if it is RADnh3 or RADnh5
-        v = ord(buff[6])
+        try:
+            v = ord(buff[6]) # python 2
+        except TypeError:
+            v = int(buff[6]) # python 3
         if v == 5:
             return "RADnh5"
         elif v == 0 or v == 255:
             return "RADnh3"
         else:
-            raise Exception("Can't determine stream for file %s" % filename)
+            raise ValueError("Can't determine stream for file %s" % filename)
 
 # Read individual traces out of RADnh3 or RADnh5 file
 # TODO: This doesn't yet filter on channels, which should be OK - the
@@ -352,15 +356,15 @@ def read_RADnhx_gen(input_filename, channel_specs):
     if stream == "RADnh3":
         header_t = namedtuple('radnh3_header',
                               'nsamp nchan vr0 vr1 choff ver resvd2')
-        fmtstr='>HBBBBBB'
+        fmtstr = '>HBBBBBB'
     elif stream == "RADnh5":
         header_t = namedtuple('radnh5_header',
                               'nsamp nchan vr0 vr1 choff ver resvd2 absix relix xinc rseq scount tscount')
-        fmtstr='>HBBBBBBddfLHL'
+        fmtstr = '>HBBBBBBddfLHL'
     else:
         raise Exception("Invalid stream type for file: %s" % input_filename)
 
-    fmtlen=struct.calcsize(fmtstr)
+    fmtlen = struct.calcsize(fmtstr)
     # In theory, it's faster to do this here and only compile the format string once.
     header_struct = struct.Struct(fmtstr)
 

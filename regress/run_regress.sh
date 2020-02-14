@@ -2,7 +2,7 @@
 
 # Run regression and coverage
 
-COV=coverage
+COV=coverage3
 
 
 S0=`basename $0`
