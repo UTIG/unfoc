@@ -64,6 +64,10 @@ echo "${S0}: Running tests"
 ###############
 #test_HiCARS2
 
+# Read a RADnh5 from JKB (MARFA) and do some unit testing with CT
+$COV run $COVFLAGS ../test_unfoc.py
+
+
 # Run a short section for coverage and no blanking
 $COV run $COVFLAGS ../unfoc.py \
     --infile $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/bxds \
@@ -83,14 +87,14 @@ $COV run $COVFLAGS ../unfoc.py \
     --infile $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/bxds \
     --outdir $OUTDIR/MBL/JKB2h/Y90a/RADnh3 \
     --channel_def ${HICARS2_CHANNELS} --output_samples 3200 --output_phases \
-    --StackDepth 10 --IncoDepth 5  --Scale 20000  --blanking 200 $UNFOCFLAGS
+    --StackDepth 10 --IncoDepth 5  --Scale 20000  --blanking 200 --nmax 10000 $UNFOCFLAGS
 
 # test_MARFA
 $COV run $COVFLAGS ../unfoc.py \
     --infile $WAIS/orig/xlob/MBL/MKB2l/Y76a/RADnh3/bxds \
     --outdir $OUTDIR/MBL/MKB2l/Y76a/RADnh3 \
     --channel_def 2  --output_samples 3200 --output_phases --bandpass \
-    --StackDepth 10 --IncoDepth 5  --Scale 20000  --blanking 200 $UNFOCFLAGS
+    --StackDepth 10 --IncoDepth 5  --Scale 20000  --blanking 200 --nmax 10000 $UNFOCFLAGS
 
 
 # Read a RADnh5 from GCX (HiCARS2)
@@ -98,7 +102,7 @@ $COV run $COVFLAGS ../unfoc.py \
     --infile $WAIS/orig/xlob/ASB1/GCX0e/R40a/RADnh5/bxds \
     --outdir $OUTDIR/ASB1/GCX0e/R40a/RADnh5 \
     --channel_def ${HICARS2_CHANNELS}  --output_samples 3200 --output_phases --bandpass \
-    --StackDepth 10 --IncoDepth 5  --Scale 20000  --blanking 200 $UNFOCFLAGS
+    --StackDepth 10 --IncoDepth 5  --Scale 20000  --blanking 200 --nmax 10000 $UNFOCFLAGS
 
 
 # Read a RADnh5 from JKB (MARFA)
@@ -106,7 +110,7 @@ $COV run $COVFLAGS ../unfoc.py \
     --infile $WAIS/orig/xlob/ASB1/JKB2s/R06a/RADnh5/bxds \
     --outdir $OUTDIR/ASB1/JKB2s/R06a/RADnh5 \
     --channel_def  ${MARFA_CHANNELS}   --output_samples 3200 --output_phases --bandpass \
-    --StackDepth 10 --IncoDepth 5  --Scale 20000  --blanking 200
+    --StackDepth 10 --IncoDepth 5  --Scale 20000  --blanking 200 --nmax 100000
 
 # Checksum all output data
 find $OUTDIR -type f -print0 | sort -z | xargs -r0 sha1sum -b > ${OUTDIR}.sha1
