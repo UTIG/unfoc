@@ -13,7 +13,6 @@ import logging
 import os
 import struct
 import sys
-import gzip
 
 #import Queue
 
@@ -35,24 +34,15 @@ from parse_channels import parse_channels, PIK1ChannelSpec
 enable_meta_index=True
 ################################################
 
-
 class Trace:
     """
     Pairs channel + data for a trace.
     Data is either raw amplitudes, or complex amplitudes
-    Optionally includes:
-    seq: sequence number (an integer > 0), None if not specified
-    tim: ct timestamp
     """
-    def __init__(self, channel, data, header=None, tstamps=None, ct=None):
+    def __init__(self, channel, data):
         # type: (int, np.ndarray) -> None
         self.channel = channel
         self.data = data
-        # see read_RADnhx_gen for header definition (variable between RADnh3, RADnh5)
-        self.header = header
-        self.tstamps = tstamps # time stamps
-        self.ct = ct
-
 
 class IncoherentTrace:
     """
@@ -167,7 +157,7 @@ def denoise_and_dechirp_gen(cohstacks, # type: Generator[Trace, None, None]
     for trace in cohstacks:
         dechirped = denoise_and_dechirp(trace.data[0:output_samples], ref_chirp,
                                         blanking, output_samples, do_cinterp)
-        yield Trace(trace.channel, dechirped, header=trace.header, tstamps=trace.tstamps, ct=trace.ct)
+        yield Trace(trace.channel, dechirped)
 
 
 class SingleStack:
@@ -183,15 +173,11 @@ class SingleStack:
         # these are autodetected from first call to add_trace
         self.samples = None # type: Optional[int]
         self.stacks = None # type: Optional[np.ndarray]
-        self.headers = [] # type: Optional[np.ndarray]
 
-    def add_trace(self, sweep, header=None):
-        # type: (np.ndarray, np.ndarray, Trace) -> Optional[np.ndarray]
-        # output will either be [depth x samples] if presum is False,
-        #  or 1 x samples, if presum is True
-        # Header is metadata.  The parameters are done this way for backward compatibility
-        # if provided, return a tuple with stack and headers.
-        # otherwise, use backward-compatible return format. TODO: deprecate this
+    def add_trace(self, sweep):
+        # type: (np.ndarray) -> Optional[np.ndarray]
+        # output will either be depth x samples or 1 x samples, depending
+        # on presum
         if self.stacks is None:
             self.samples = sweep.size # How many samples long each sweep is
             self.stacks = np.zeros((self.depth, self.samples), dtype=np.float64)
@@ -202,23 +188,12 @@ class SingleStack:
         self.idx += 1
         self.count += 1
 
-        self.headers.append(header)
-
         if self.idx >= self.depth:
             self.idx = 0
-
-            headers1 = self.headers # clear headers
-            self.headers = []
             if self.presum:
-                if header is None:
-                    return self.stacks.sum(axis=0)
-                else:
-                    return (self.stacks.sum(axis=0), headers1)
+                return self.stacks.sum(axis=0)
             else:
-                if header is None:
-                    return self.stacks
-                else:
-                    return (self.stacks, headers1)
+                return self.stacks
         else:
             return None
 
@@ -252,23 +227,17 @@ class PairedStack:
             # assert self.fullstacks0[-1].shape[0] == self.depth?
 
             if bDo0 and bDo1:
-                array_out1 = scale0 * self.fullstacks0[-1].data + scale1 * self.fullstacks1[-1].data
+                array_out1 = scale0 * self.fullstacks0[-1] + scale1 * self.fullstacks1[-1]
             elif bDo0 and not bDo1:
-                array_out1 = scale0 * self.fullstacks0[-1].data
+                array_out1 = scale0 * self.fullstacks0[-1]
             elif not bDo0 and bDo1:
-                array_out1 = scale1 * self.fullstacks1[-1].data
+                array_out1 = scale1 * self.fullstacks1[-1]
 
             if bReady0:
-                header = self.fullstacks0[-1].header
-                tstamps = self.fullstacks0[-1].tstamps
-                ct = self.fullstacks0[-1].ct
                 self.fullstacks0.pop();
             if bReady1:
-                header = self.fullstacks1[-1].header
-                tstamps = self.fullstacks1[-1].tstamps
-                ct = self.fullstacks1[-1].ct
                 self.fullstacks1.pop();
-            return Trace(self.channel_spec.chanout, array_out1, header=header, tstamps=tstamps, ct=ct)
+            return Trace(self.channel_spec.chanout, array_out1)
 
 
     def add_stack(self, trace):
@@ -281,9 +250,9 @@ class PairedStack:
                        self.channel_spec, len(self.fullstacks0), len(self.fullstacks1)))
             raise Exception(msg)
         if self.channel_spec.chan0in == trace.channel:
-            self.fullstacks0.insert(0, trace)
+            self.fullstacks0.insert(0, trace.data)
         elif self.channel_spec.chan1in == trace.channel:
-            self.fullstacks1.insert(0, trace)
+            self.fullstacks1.insert(0, trace.data)
         else:
             # no change in state, so no need for get_stacks
             return None
@@ -315,14 +284,13 @@ def stacks_gen(traces, # type: List[Trace]
         # Stack into appropriate bins
         # Iterate over all the channel specs and see which ones need to be stacked
         if trace.channel in ss0:
-            rec = ss0[trace.channel].add_trace(np.float64(trace.data), trace.header)
+            cohstack = ss0[trace.channel].add_trace(np.float64(trace.data))
 
-            if rec is not None:
-                cohstack, headers = rec
+            if cohstack is not None:
                 for (idx, p1cs) in enumerate(channel_specs):
                     # Test to prevent extraneous calls to add_stack()
                     if trace.channel in [p1cs.chan0in, p1cs.chan1in]:
-                        new_trace = Trace(trace.channel, cohstack, header=headers[0], tstamps=None, ct=None)
+                        new_trace = Trace(trace.channel, cohstack)
                         result = stacks[idx].add_stack(new_trace)
                         # If this stack state yielded a full stack, yield it
                         if result is not None:
@@ -378,23 +346,10 @@ def get_radar_stream(filename):
         else:
             raise ValueError("Can't determine stream for file %s" % filename)
 
-CT = namedtuple('CT', 'pst seq clk tim')
-def parse_ct(line):
-    """ Parse text CT line into a simple namedtuple
-    GHOST1 JKB2j F01T03a 134241 2014 04 27 17 03 17 50 720606
-    """
-    fields = line.split()
-    clk = "{:4d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}.{:02d}".format( \
-          int(fields[4]),int(fields[5]), int(fields[6]),
-          int(fields[7]),int(fields[8]), int(fields[9]),int(fields[10]))
-
-    return CT("{0[0]}/{0[1]}/{0[2]}".format(fields),
-              int(fields[3]), clk, int(fields[11]))
-
 # Read individual traces out of RADnh3 or RADnh5 file
 # TODO: This doesn't yet filter on channels, which should be OK - the
 # downstream users ALSO check channel.
-def read_RADnhx_gen(input_filename, channel_specs, b_parse_ct=False):
+def read_RADnhx_gen(input_filename, channel_specs):
     # type: (str, List[PIK1ChannelSpec]) -> Generator[Trace, None, None]
 
     stream = get_radar_stream(input_filename)
@@ -407,7 +362,7 @@ def read_RADnhx_gen(input_filename, channel_specs, b_parse_ct=False):
                               'nsamp nchan vr0 vr1 choff ver resvd2 absix relix xinc rseq scount tscount')
         fmtstr = '>HBBBBBBddfLHL'
     else:
-        raise ValueError("Invalid stream type for file: %s" % input_filename)
+        raise Exception("Invalid stream type for file: %s" % input_filename)
 
     fmtlen = struct.calcsize(fmtstr)
     # In theory, it's faster to do this here and only compile the format string once.
@@ -419,22 +374,6 @@ def read_RADnhx_gen(input_filename, channel_specs, b_parse_ct=False):
         choffs.add(((p1cs.chan0in-1)//2)*2)
         choffs.add(((p1cs.chan1in-1)//2)*2)
 
-    # Open ct file if it exists
-    fdct = None
-    ctline = None
-    if b_parse_ct:
-
-        rad_dir = os.path.dirname(input_filename)
-        ctfn1 = os.path.join(rad_dir, 'ct')
-        ctfn2 = os.path.join(rad_dir, 'ct.gz')
-        if os.path.exists(ctfn1):
-            fdct = open(ctfn1, 'r')
-        elif os.path.exists(ctfn2):
-            fdct = gzip.open(ctfn2, 'r')
-        else:
-            logging.warning("Can't find ct in " + rad_dir)
-
-    tstamps = None
     with open(input_filename, 'rb') as fd:
         while True:
             # read header
@@ -442,21 +381,15 @@ def read_RADnhx_gen(input_filename, channel_specs, b_parse_ct=False):
             if len(buff) < fmtlen:
                 return
 
-            # read ct line
-            if fdct:
-                ctline = parse_ct(fdct.readline())
-
             header = header_t._make(header_struct.unpack(buff))
             if stream == "RADnh5":
+                # We don't do anything with the timestamps yet, but we need
+                # to skip over 'em to get to the radar data.
                 if header.tscount > 0:
                     # timestamp count should be on the order of the number of stacks.
                     assert(header.tscount < 100)
-                    tstamps = struct.unpack_from('>{:d}d'.format(header.tscount), fd.read(8*header.tscount))
-                    # We don't do anything with the timestamps yet, but we need
-                    # to skip over 'em to get to the radar data.
-                    #fd.seek(8*header.tscount, os.SEEK_CUR)
-                else:
-                    tstamps = None
+                    #tstamps = struct.unpack_from('>{:d}d'.format(tscount), fd.read(8*tscount))
+                    fd.seek(8*header.tscount, os.SEEK_CUR)
 
             # both headers have choff
             # Legacy value of 0xff is equivalent to offset 0
@@ -477,13 +410,12 @@ def read_RADnhx_gen(input_filename, channel_specs, b_parse_ct=False):
                     break # didn't get enough data.
 
                 # no use yet for headers....
-                yield Trace(choff+1, traces[0][...], header, tstamps, ctline)
-                yield Trace(choff+2, traces[1][...], header, tstamps, ctline)
+                yield Trace(choff+1, traces[0][...])#, header, radnhx_header)
+                yield Trace(choff+2, traces[1][...])#, header, radnhx_header)
             else:
                 # Skip the rest of this record without yielding any values
                 fd.seek(4*input_samples, os.SEEK_CUR)
-    if fdct:
-        fdct.close()
+
 
 class PIK1OutputFile(object):
     """
