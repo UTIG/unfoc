@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import collections
 try:
@@ -16,11 +16,36 @@ except ImportError: #pragma: no cover
 # * scalef0 (float) - first input channel weight
 # * chan1in (int) - second input channel number
 # * scalef1 (float) - second input channel weight
-# QUESTION(LEL): When would you use a namedtuple vs. a class? Or is this just
-#     syntactic sugar?
+
+
+# We use a NamedTuple because it's more lightweight than a class, and
+# because we aren't encoding any behaviors (methods)
+# A namedtuple is also immutable so you can't accidentally change the data
 PIK1ChannelSpec = collections.namedtuple("PIK1ChannelSpec",
                                          ['chanout','chan0in','scalef0',
                                           'chan1in','scalef1']);
+
+# A quick reference for how to set up pik1 to make the UTIG data correctly
+
+UTIG_CHANNELS = {
+'LoResInco1': PIK1ChannelSpec(chanout=1, chan0in=1, scalef0=1, chan1in=3, scalef1=1), # sum left and right low gain
+'LoResInco2': PIK1ChannelSpec(chanout=2, chan0in=2, scalef0=1, chan1in=4, scalef1=1), # sum left and right high gain
+'LoResInco3': PIK1ChannelSpec(chanout=3, chan0in=1, scalef0=1, chan1in=3, scalef1=-1), # diff left and right low gain
+'LoResInco4': PIK1ChannelSpec(chanout=4, chan0in=2, scalef0=1, chan1in=4, scalef1=-1), # diff left and right high gain
+'LoResInco5': PIK1ChannelSpec(chanout=5, chan0in=1, scalef0=1, chan1in=0, scalef1=0), # left low
+'LoResInco6': PIK1ChannelSpec(chanout=6, chan0in=2, scalef0=1, chan1in=0, scalef1=0), # left high
+'LoResInco7': PIK1ChannelSpec(chanout=7, chan0in=3, scalef0=1, chan1in=0, scalef1=0), # right low
+'LoResInco8': PIK1ChannelSpec(chanout=8, chan0in=4, scalef0=1, chan1in=0, scalef1=0), # right high
+}
+
+
+def get_utig_channels(chanstr):
+    """ Expects a comma-separated list of channels to produce. Case sensitive. """
+    # type: (str) -> List[PIK1ChannelSpec]
+    list_config = [] # type: List[PIK1ChannelSpec]
+    for name in chanstr.split(','):
+        list_config.append(UTIG_CHANNELS[name])
+    return list_config
 
 def parse_channels(chanstr):
     # type: (Union[int, str]) -> List[PIK1ChannelSpec]
@@ -64,9 +89,14 @@ def main():
     print(parse_channels("[1,2,3,4,5;6,7,8.0,9,10]"))
     print(parse_channels("[1,2,3,4,5]"))
 
-    for s in "[1,1,1,3,1] [2,2,1,4,1] [5,1,1,0,0;7,3,1,0,0] [6,2,1,0,0;8,4,1,0,0]".split(" "):
+    tests = "[1,1,1,3,1] [2,2,1,4,1] [5,1,1,0,0;7,3,1,0,0] [6,2,1,0,0;8,4,1,0,0]".split(" ") \
+          + '1 2 3 4 5 6 7 8'.split()
+
+    for s in tests:
         x = parse_channels(s)
         print("s: {:s}\n{:s}".format(s, str(x)))
+
+    get_utig_channels('LoResInco1,LoResInco2,LoResInco3')
 
     return 0
 

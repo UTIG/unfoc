@@ -1,20 +1,21 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # unfoc.py: Unfocused Radar Processor
 # Output file for pik1 (4-byte signed integer, network order)
 #
-# All output files are 4-byte network-order.
+# All output files are 4-byte network-order (big endian).
 #
+# see parse_channels.py for instructions on how to set channels
+# TODO: make a graphviz diagram showing the pipeline
 
 import argparse
 from collections import namedtuple
 import cProfile
 import logging
 import os
+import gzip
 import struct
 import sys
-
-#import Queue
 
 import numpy as np
 from scipy import signal
@@ -25,7 +26,7 @@ try:
 except ImportError: #pragma: no cover
     pass  # Not installed on melt ...
 
-from parse_channels import parse_channels, PIK1ChannelSpec
+from parse_channels import parse_channels, get_utig_channels, PIK1ChannelSpec
 
 ################################################
 # Enable metadata index writing.
@@ -38,21 +39,24 @@ class Trace:
     """
     Pairs channel + data for a trace.
     Data is either raw amplitudes, or complex amplitudes
+    Also adds ct
     """
-    def __init__(self, channel, data):
-        # type: (int, np.ndarray) -> None
+    def __init__(self, channel, data, ct):
+        # type: (int, np.ndarray, Union[tuple,List[tuple]]) -> None
         self.channel = channel
         self.data = data
+        self.ct = ct # type: tuple
 
 class IncoherentTrace:
     """
     Pairs channel and magnitude/phase data for an incoherent trace
     """
-    def __init__(self, channel, magnitude, phase):
-        # type: (int, np.ndarray, Optional[np.ndarray]) -> None
+    def __init__(self, channel, magnitude, phase, ct):
+        # type: (int, np.ndarray, np.ndarray, List[tuple]) -> None
         self.channel = channel
         self.magnitude = magnitude
         self.phase = phase
+        self.ct = ct # type: tuple
 
 
 class IncoherentStack:
@@ -67,27 +71,36 @@ class IncoherentStack:
         # type: (int, bool) -> None
         self.depth = depth
         self.mag_stack = SingleStack(depth, False)
-        self.phs_stack = SingleStack(depth, False)
+        self.phs_stack = SingleStack(depth, False, dtype=np.cdouble)
         self.do_phase = do_phase
-        self.StackCenter = int(np.fix((self.depth/2+0.5)))
+        self.stack_center = self.depth // 2
 
     def add_trace(self, dechirped):
-        # type: (Trace) -> IncoherentTrace
+        # type: (Trace, int, List[tuple]) -> IncoherentTrace
         """
         Input trace is a complex, dechirped trace.
         Output is dechirped, broken into mag and phs
         """
-        mag = self.mag_stack.add_trace(np.abs(dechirped.data))
+        mag = self.mag_stack.add_trace(np.abs(dechirped.data), dechirped.ct)
         if self.do_phase:
-            phs = self.phs_stack.add_trace(np.angle(dechirped.data))
+            # Calculating angle later uses a bit more memory but decreases CPU usage.
+            phs = self.phs_stack.add_trace(dechirped.data, dechirped.ct)
 
         if mag is not None:
-            mag = np.mean(mag, axis=0)
+            # Grab the seq and tim of the first raw trace
+            # that was used to make this incoherent trace
+            mmag, mct = mag
+            mmag = np.mean(mmag, axis=0)
+
             if self.do_phase:
-                phs = phs[self.StackCenter,...]
+                pphs, pcts = phs
+                pphs = np.angle(pphs[self.stack_center,...])
             else:
-                phs = None
-            return IncoherentTrace(dechirped.channel, mag, phs)
+                pphs = None
+            # Get seq and tim from the middle of the stack
+            #seq, tim = mcts[self.stack_center]
+
+            return IncoherentTrace(dechirped.channel, mmag, pphs, mct)
 
 def cinterp(sweep_fft, index):
     # type: (np.ndarray, int) -> np.ndarray
@@ -120,8 +133,8 @@ def denoise_and_dechirp(trace, # type: np.ndarray
     #find peak energy below blanking samples
     ## [n,m]=sort(trace);
     ## shifter=abs((m(output_samples)));
-    shifter=int(np.median(np.argmax(trace)));
-    trace=np.roll(trace,-shifter);
+    shifter = int(np.median(np.argmax(trace)));
+    trace = np.roll(trace,-shifter);
 
     DFT = np.fft.fft(signal.detrend(trace))
 
@@ -157,14 +170,15 @@ def denoise_and_dechirp_gen(cohstacks, # type: Generator[Trace, None, None]
     for trace in cohstacks:
         dechirped = denoise_and_dechirp(trace.data[0:output_samples], ref_chirp,
                                         blanking, output_samples, do_cinterp)
-        yield Trace(trace.channel, dechirped)
+
+        yield Trace(trace.channel, dechirped, trace.ct)
 
 
 class SingleStack:
     """
     Generates a stack for a single channel of complex (coherent) traces.
     """
-    def __init__(self, depth, presum=True):
+    def __init__(self, depth, presum=True, dtype=np.float64):
         # type: (int, bool) -> None
         self.depth = depth # How many sweeps to add into a stack
         self.idx = 0 # Where to insert new sweep in the array
@@ -173,27 +187,37 @@ class SingleStack:
         # these are autodetected from first call to add_trace
         self.samples = None # type: Optional[int]
         self.stacks = None # type: Optional[np.ndarray]
+        # ct tim and sequence numbers of each stack processed
+        self.cts = [] # type: List[tuple]
+        self.dtype = dtype
+        self.stack_center = self.depth // 2
 
-    def add_trace(self, sweep):
-        # type: (np.ndarray) -> Optional[np.ndarray]
+    def add_trace(self, sweep, ct):
+        # type: (np.ndarray, int, tuple) -> Optional([np.ndarray, tuple])
         # output will either be depth x samples or 1 x samples, depending
         # on presum
         if self.stacks is None:
             self.samples = sweep.size # How many samples long each sweep is
-            self.stacks = np.zeros((self.depth, self.samples), dtype=np.float64)
+            self.stacks = np.zeros((self.depth, self.samples), dtype=self.dtype)
 
         assert sweep.size == self.samples
 
-        self.stacks[self.idx,...] = sweep
+        self.stacks[self.idx, :] = sweep
+        self.cts.append(ct)
         self.idx += 1
         self.count += 1
 
         if self.idx >= self.depth:
             self.idx = 0
+            # Select the center of the coherent stack as the ct
+            logging.debug("Selecting CT {:d} of [0,{:d}, depth={:d})".format(self.stack_center, len(self.cts), self.depth))
+            logging.debug(str(self.cts))
+            ct = self.cts[self.stack_center]
+            self.cts = []
             if self.presum:
-                return self.stacks.sum(axis=0)
+                return (self.stacks.sum(axis=0), ct)
             else:
-                return self.stacks
+                return (self.stacks, ct)
         else:
             return None
 
@@ -211,6 +235,12 @@ class PairedStack:
 
         self.fullstacks0 = [] # type: List[np.ndarray]
         self.fullstacks1 = [] # type: List[np.ndarray]
+        self.ct0 = []
+        self.ct1 = []
+
+        # Having the same input channels in the channel spec will cause
+        # the stack queues to get confused.
+        assert self.channel_spec.chan0in != self.channel_spec.chan1in
 
     def get_stack(self):
         # type: () -> Trace
@@ -228,16 +258,26 @@ class PairedStack:
 
             if bDo0 and bDo1:
                 array_out1 = scale0 * self.fullstacks0[-1] + scale1 * self.fullstacks1[-1]
+                ct = self.ct0[-1]
+                #seq1, tim1 = self.ct1[-1]
+                # Both stacks should be contemporaneous, but they will have
+                # slightly different trace numbers.  So we choose the sequence
+                # number of fullstacks0
+                # we could try raising assertions that they are close to each other
             elif bDo0 and not bDo1:
+                ct = self.ct0[-1]
                 array_out1 = scale0 * self.fullstacks0[-1]
             elif not bDo0 and bDo1:
+                ct = self.ct1[-1]
                 array_out1 = scale1 * self.fullstacks1[-1]
 
             if bReady0:
-                self.fullstacks0.pop();
+                self.fullstacks0.pop()
+                self.ct0.pop()
             if bReady1:
-                self.fullstacks1.pop();
-            return Trace(self.channel_spec.chanout, array_out1)
+                self.fullstacks1.pop()
+                self.ct1.pop()
+            return Trace(self.channel_spec.chanout, array_out1, ct)
 
 
     def add_stack(self, trace):
@@ -246,15 +286,17 @@ class PairedStack:
         # output stack if adding it enabled a new one to be computed.
         # Array dimensions are #channels.
         if len(self.fullstacks0) >= 1000 or len(self.fullstacks1) >= 1000:
-            msg = ("overflow: p1cs={4:s} fullstacks0={0:d} fullstacks1={1:d}".format(
+            msg = ("overflow: p1cs={0:s} fullstacks0={0:d} fullstacks1={1:d}".format(
                        self.channel_spec, len(self.fullstacks0), len(self.fullstacks1)))
-            raise Exception(msg)
+            raise RuntimeError(msg)
         if self.channel_spec.chan0in == trace.channel:
             self.fullstacks0.insert(0, trace.data)
+            self.ct0.insert(0, trace.ct)
         elif self.channel_spec.chan1in == trace.channel:
             self.fullstacks1.insert(0, trace.data)
+            self.ct1.insert(0, trace.ct)
         else:
-            # no change in state, so no need for get_stacks
+            # no change in state, so no need for get_stack
             return None
 
         return self.get_stack()
@@ -284,13 +326,14 @@ def stacks_gen(traces, # type: List[Trace]
         # Stack into appropriate bins
         # Iterate over all the channel specs and see which ones need to be stacked
         if trace.channel in ss0:
-            cohstack = ss0[trace.channel].add_trace(np.float64(trace.data))
+            cohstack = ss0[trace.channel].add_trace(np.float64(trace.data), trace.ct)
 
             if cohstack is not None:
                 for (idx, p1cs) in enumerate(channel_specs):
                     # Test to prevent extraneous calls to add_stack()
                     if trace.channel in [p1cs.chan0in, p1cs.chan1in]:
-                        new_trace = Trace(trace.channel, cohstack)
+                        stack, cts = cohstack
+                        new_trace = Trace(trace.channel, stack, cts)
                         result = stacks[idx].add_stack(new_trace)
                         # If this stack state yielded a full stack, yield it
                         if result is not None:
@@ -303,6 +346,10 @@ def inco_stacks_gen(traces, # type: Generator[Trace, None, None]
                    output_samples=3200, # type: int
                    do_phase=False # type: bool
                   ):
+    """
+
+    """
+
     # type: (...) -> Generator[IncoherentTrace, None, None]
     ss0 = {} # type: Dict[int, IncoherentStack]
     for p1cs in channel_specs:
@@ -329,7 +376,7 @@ def get_radar_stream(filename):
         # read header
         buff = fd.read(fmtlen)
         if len(buff) < fmtlen:
-            raise Exception("Unable to read %d bytes from %s."
+            raise IOError("Unable to read %d bytes from %s."
                             % (fmtlen, filename))
 
         # TODO: This check should only  happen once, not every read!!
@@ -345,6 +392,28 @@ def get_radar_stream(filename):
             return "RADnh3"
         else:
             raise ValueError("Can't determine stream for file %s" % filename)
+
+CT_t = namedtuple('CT', 'seq tim')
+def gen_ct(bxdsfile):
+    """ Generate ct data from the ct file associated with bxdsfile
+    We only return relevant information. We actually only want the seq and ct tim.
+
+    """
+    datadir = os.path.dirname(bxdsfile)
+    ctfile1 = os.path.join(datadir, 'ct')
+    ctfile2 = os.path.join(datadir, 'ct.gz')
+    if os.path.exists(ctfile1):
+        fh = open(ctfile1, 'rt')
+    elif os.path.exists(ctfile2):
+        fh = gzip.open(ctfile2, 'rt')
+    else:
+        return
+    for line in fh:
+        fields = line.rstrip().split()
+        # e.g., THW PBA0a X66a 9644392 2020 02 02 03 22 59 70 2762000089
+        # yield ct, seq
+        yield CT_t(int(fields[3]), int(fields[11]))
+
 
 # Read individual traces out of RADnh3 or RADnh5 file
 # TODO: This doesn't yet filter on channels, which should be OK - the
@@ -362,7 +431,7 @@ def read_RADnhx_gen(input_filename, channel_specs):
                               'nsamp nchan vr0 vr1 choff ver resvd2 absix relix xinc rseq scount tscount')
         fmtstr = '>HBBBBBBddfLHL'
     else:
-        raise Exception("Invalid stream type for file: %s" % input_filename)
+        raise ValueError("Invalid stream type for file: %s" % input_filename)
 
     fmtlen = struct.calcsize(fmtstr)
     # In theory, it's faster to do this here and only compile the format string once.
@@ -374,13 +443,17 @@ def read_RADnhx_gen(input_filename, channel_specs):
         choffs.add(((p1cs.chan0in-1)//2)*2)
         choffs.add(((p1cs.chan1in-1)//2)*2)
 
+    genct = gen_ct(input_filename)
+    if not genct:
+        logging.warning("Can't read corresponding ct file for " + input_filename)
+
     with open(input_filename, 'rb') as fd:
         while True:
             # read header
             buff = fd.read(fmtlen)
             if len(buff) < fmtlen:
                 return
-
+            ctdata = next(genct) if genct else (None, None)
             header = header_t._make(header_struct.unpack(buff))
             if stream == "RADnh5":
                 # We don't do anything with the timestamps yet, but we need
@@ -400,7 +473,7 @@ def read_RADnhx_gen(input_filename, channel_specs):
 
             # reclen = SweepLength
             input_samples = header.nsamp
-            assert(input_samples > 0 and input_samples < 10000)
+            assert 0 < input_samples < 10000
 
             if choff in choffs:
                 traces = np.fromfile(fd, dtype='>i2', count=input_samples*2)
@@ -410,8 +483,8 @@ def read_RADnhx_gen(input_filename, channel_specs):
                     break # didn't get enough data.
 
                 # no use yet for headers....
-                yield Trace(choff+1, traces[0][...])#, header, radnhx_header)
-                yield Trace(choff+2, traces[1][...])#, header, radnhx_header)
+                yield Trace(choff+1, traces[0][...], ctdata) #, header, radnhx_header)
+                yield Trace(choff+2, traces[1][...], ctdata) #, header, radnhx_header)
             else:
                 # Skip the rest of this record without yielding any values
                 fd.seek(4*input_samples, os.SEEK_CUR)
@@ -429,18 +502,23 @@ class PIK1OutputFile(object):
         self.MagFileName = "{0:s}/MagLoResInco{1:d}".format(outdir, channel)
         self.PhsFileName = "{0:s}/PhsLoResInco{1:d}".format(outdir, channel)
         self.MetaFileName = "{0:s}/MagLoResInco{1:d}.meta".format(outdir, channel)
+        self.TracesFileName = "{0:s}/TraceNumbers{1:d}".format(outdir, channel)
         # File descriptors
         self.MagOutFD = None # type: Optional[BinaryIO]
         self.PhsOutFD = None # type: Optional[BinaryIO]
         self.MetaOutFD = None # type: Optional[BinaryIO]
+        self.TraceNumbersFD = None # type: Optional[BinaryIO]
 
         self.ChannelNum = channel
         self.MagScale = MagScale
         self.StackDepth = StackDepth
         self.IncoDepth = IncoDepth
 
-        self.record_increment=self.StackDepth*self.IncoDepth
-        self.record_idx=self.record_increment/2
+        self.record_increment = self.StackDepth*self.IncoDepth
+        self.record_idx = self.record_increment/2
+
+        # Cache result for whether we need to do byte swapping
+        self.do_byteswap = sys.byteorder == 'little'
 
     def open(self, input_filename, do_phase=True, do_index=True):
         # type: (str, bool, bool) -> None
@@ -455,15 +533,17 @@ class PIK1OutputFile(object):
         self.enable_meta_idx = do_index
 
         ## Open Input and Output files
-        self.MetaOutFD = open(self.MetaFileName, 'w')
+        self.MetaOutFD = open(self.MetaFileName, 'wt')
         self.MetaOutFD.write('#InputName = "' + input_filename + '"\n')
         logging.info("writing %s" % self.MagFileName)
         self.MagOutFD = open(self.MagFileName, 'wb')
         self.MetaOutFD.write('#MagName = "' + self.MagFileName + '"\n')
 
         if do_phase:
-            self.PhsOutFD = open(self.PhsFileName, 'w')
+            self.PhsOutFD = open(self.PhsFileName, 'wt')
             self.MetaOutFD.write('#PhsName = "' + self.PhsFileName + '"\n')
+
+        self.TraceNumbersFD = open(self.TracesFileName, 'wt')
 
         ###### FIXME? - request hdr file from xlob and read/forward
         # TODO: collect this information into a data structure rather than reading directly from args.
@@ -479,13 +559,18 @@ class PIK1OutputFile(object):
         # Write component files if enabled
         if self.PhsOutFD is not None:
             Phase = np.int32(inco_trace.phase * 16777216)
-            Phase.byteswap(True)
+            if self.do_byteswap:
+                Phase.byteswap(True)
             Phase.tofile(self.PhsOutFD)
 
         if self.MagOutFD is not None:
             ScaledMag = np.int32(self.MagScale * np.log10(inco_trace.magnitude))
-            ScaledMag.byteswap(True)
+            if self.do_byteswap:
+                ScaledMag.byteswap(True)
             ScaledMag.tofile(self.MagOutFD)
+
+        if self.TraceNumbersFD is not None:
+            self.TraceNumbersFD.write(str(inco_trace.ct.seq) + "\n")
 
         if self.enable_meta_idx:
             self.MetaOutFD.write(str(self.record_idx) + "\n")
@@ -494,7 +579,7 @@ class PIK1OutputFile(object):
     def close(self):
         # type: () -> None
         # flush stacks,
-        # warn about incomplete stacks
+        # TODO: warn about incomplete stacks
         # close file handles
         if self.MagOutFD is not None:
             self.MagOutFD.close()
@@ -507,6 +592,10 @@ class PIK1OutputFile(object):
         if self.MetaOutFD is not None:
             self.MetaOutFD.close()
             self.MetaOutFD = None
+
+        if self.TraceNumbersFD is not None:
+            self.TraceNumbersFD.close()
+            self.TraceNumbersFD = None
 
 
 def get_ref_chirp(bandpass, trunc_sweep_length):
@@ -548,7 +637,7 @@ def main(args):
     # type: (Any) -> None
     LOGLEVEL = logging.DEBUG if args.debug else logging.INFO
     logging.basicConfig(level=LOGLEVEL, stream=sys.stdout,
-                    format='pik1: %(relativeCreated)8d [%(levelname)-5s] (%(process)d %(threadName)-10s) %(message)s',
+                    format='pik1: [%(levelname)-5s] %(message)s',
                    )
 
     # Obtain reference chirp
@@ -562,8 +651,22 @@ def main(args):
     # plt.plot(hfilter, range(0,filter.size))
     ref_chirp = np.multiply(ref_chirp, hfilter)
 
-    channel_specs = parse_channels(args.channel_def)
+    if args.channels:
+        channel_specs = get_utig_channels(args.channels)
+    else:
+        channel_specs = parse_channels(args.channel_def)
+    if not channel_specs:
+        raise ValueError("Did not find any valid channels to generate")
+
+
     logging.debug("%r" % channel_specs)
+
+    """
+    This shows how to construct a filter pipeline using generators.
+    tracegen takes as input a bxds file (and ct file, implicitly), and generates raw Traces().
+
+    """
+
     # Read traces from file
     # TODO: This is where we need to be able to read RADnh5 instead
     #tracegen = read_RADnh3_gen(args.infile, channel_specs, args.input_samples)
@@ -590,29 +693,37 @@ def main(args):
                                                 args.IncoDepth)
         outfiles[p1cs.chanout].open(args.infile, do_phase=args.output_phases)
 
-    for i, rec in enumerate(istackgen):
+    for ii, rec in enumerate(istackgen):
         if rec.channel in outfiles:
             outfiles[rec.channel].write_record(rec)
         else:
-            raise Exception("Invalid output channel %d" % rec.channel)
-        if args.nmax > 0 and i >= args.nmax:
+            raise ValueError("Invalid output channel %d" % rec.channel)
+        if args.nmax > 0 and ii >= args.nmax:
             break
 
     for p1cs in channel_specs:
         outfiles[p1cs.chanout].close()
 
 
+def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth, scale,
+          blanking, bandpass, nmax):
+    # TODO: make callable without making system calls
+    pass
+
 if __name__ == "__main__":
+    # TODO: move to main
     parser = argparse.ArgumentParser(description='Pulse compress radar data')
 
     parser.add_argument('--outdir', required=True,
                         help='directory for output files')
     parser.add_argument('--infile', required=True,
                         help='filename of 2-byte radar file')
-    # TODO(LEL): This argument is a PITA. Should be consistent channel spec,
-    #    not optional int or string..
-    parser.add_argument('--channel_def', required=True,
-                        help="Channel Number to compress (counts from 1) OR string that's the channel spec")
+
+    cgroup = parser.add_mutually_exclusive_group(required=True)
+    cgroup.add_argument('--channel_def',
+                        help="Channel spec string. This option is deprecated. Use --channels")
+    cgroup.add_argument('--channels',
+                        help="comma-separated channels to produce, such as 'LoResInco1,LoResInco2'")
 
     parser.add_argument('--output_samples', required=True, type=int,
                         help='Length of each output sweep (in samples)')

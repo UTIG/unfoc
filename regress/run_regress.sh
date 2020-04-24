@@ -108,8 +108,24 @@ $COV run $COVFLAGS ../unfoc.py \
     --channel_def  ${MARFA_CHANNELS}   --output_samples 3200 --output_phases --bandpass \
     --StackDepth 10 --IncoDepth 5  --Scale 20000  --blanking 200
 
+
+
+
+# Use --channels flag
+$COV run $COVFLAGS ../unfoc.py
+    --infile $WAIS/orig/xlob/THW/PBA0a/X66a/RADnh5/bxds \
+    --outdir ./unfoc1_THW_PBA0a_X66a \
+    --channels LoResInco1,LoResInco2,LoResInco3,LoResInco4,LoResInco5,LoResInco6,LoResInco7,LoResInco8 \
+    --output_samples 3200 --output_phases --bandpass --StackDepth 10 \
+    --IncoDepth 5 --Scale 20000 --blanking 200 --debug --nmax 1000
+
+
+
 # Checksum all output data
 find $OUTDIR -type f -print0 | sort -z | xargs -r0 sha1sum -b > ${OUTDIR}.sha1
+
+
+
 
 
 
