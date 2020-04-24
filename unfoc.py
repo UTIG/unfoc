@@ -133,10 +133,14 @@ def denoise_and_dechirp(trace, # type: np.ndarray
     #find peak energy below blanking samples
     ## [n,m]=sort(trace);
     ## shifter=abs((m(output_samples)));
-    shifter = int(np.median(np.argmax(trace)));
-    trace = np.roll(trace,-shifter);
+    # GNG -- this line wasn't doing what you think it was doing.
+    #shifter = int(np.median(np.argmax(trace)));
+    # You have to do this:
+    #shifter = np.median(np.argwhere(listy == np.amax(listy)))
+    shifter = int(np.argmax(trace))
+    trace = np.roll(trace, -shifter);
 
-    DFT = np.fft.fft(signal.detrend(trace))
+    DFT = np.fft.fft(signal.detrend(trace, type='linear'))
 
     if do_cinterp:
         # Remove five samples per cycle problem
@@ -153,7 +157,7 @@ def denoise_and_dechirp(trace, # type: np.ndarray
     # Do the dechirp
     Product = np.multiply(ref_chirp, DFT)
     Dechirped = np.fft.ifft(Product)
-    Dechirped = np.roll(Dechirped,shifter)
+    Dechirped = np.roll(Dechirped, shifter)
     return Dechirped
 
 
