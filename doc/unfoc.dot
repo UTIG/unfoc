@@ -1,0 +1,71 @@
+// Graphviz diagram of how unfoc works
+// https://renenyffenegger.ch/notes/tools/Graphviz/examples/index
+
+digraph D {
+    //orientation="landscape"
+    size="10,7.5"
+    // Default formatting options
+    node [shape=record]
+    // Define node names, labels, and formatting
+    label  = "unfoc.py Data Flow"
+    labelloc = "t"; // place the label at the top
+
+    subgraph cluster_in {
+        node [shape="ellipse"]
+        label="Input Files"
+        labelloc = "t";
+        bxds
+        ct
+    }
+
+    bxds -> read_RADnhx_gen
+    ct -> read_RADnhx_gen
+
+    { rank = same ; read_RADnhx_gen ; Trace1 ; stacks_gen ; Trace2 ; denoise_and_dechirp_gen}
+
+
+    Trace1 [label="Trace" shape=Mrecord]
+    Trace2 [label="{Trace|(coherent stack)}" shape=Mrecord]
+    Trace3 [label="{Trace|(dechirped)}" shape=Mrecord]
+    Trace4 [label="IncoherentTrace" shape=Mrecord]
+
+    read_RADnhx_gen -> Trace1
+    Trace1 -> stacks_gen -> Trace2 -> denoise_and_dechirp_gen -> Trace3
+
+    { 
+        rank = same ; 
+        rankdir = RL ; 
+        //style = "invis";
+
+        Trace3 -> inco_stacks_gen -> Trace4
+    }
+
+
+    Trace4 -> PIK1OutputFile
+
+    // invisible constraint solely for formatting
+    read_RADnhx_gen -> Trace4 [style="invis"]
+
+
+    subgraph cluster_out {
+        label="Output Files"
+        node [shape="ellipse"]
+        labelloc="b";
+
+        MagLoResIncoN
+        PhsLoResIncoN
+        MetaN
+        TraceNumbersN
+    }
+
+    MetaN [label="meta"]
+
+    PIK1OutputFile -> MagLoResIncoN
+    PIK1OutputFile -> PhsLoResIncoN
+    PIK1OutputFile -> MetaN
+    PIK1OutputFile -> TraceNumbersN
+
+
+
+
+}
