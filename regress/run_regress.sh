@@ -109,17 +109,24 @@ $COV run $COVFLAGS ../unfoc.py \
     --StackDepth 10 --IncoDepth 5  --Scale 20000  --blanking 200
 
 
-
-
 # Use --channels flag
-$COV run $COVFLAGS ../unfoc.py
+$COV run $COVFLAGS ../unfoc.py \
     --infile $WAIS/orig/xlob/THW/PBA0a/X66a/RADnh5/bxds \
-    --outdir ./unfoc1_THW_PBA0a_X66a \
+    --outdir $OUTDIR/unfoc1_THW_PBA0a_X66a_a \
     --channels LoResInco1,LoResInco2,LoResInco3,LoResInco4,LoResInco5,LoResInco6,LoResInco7,LoResInco8 \
     --output_samples 3200 --output_phases --bandpass --StackDepth 10 \
-    --IncoDepth 5 --Scale 20000 --blanking 200 --debug --nmax 1000
+    --IncoDepth 5 --Scale 20000 --blanking 200 --nmax 1000
 
+# Use --channels flag with just channels 7,8
+$COV run $COVFLAGS ../unfoc.py \
+    --infile $WAIS/orig/xlob/THW/PBA0a/X66a/RADnh5/bxds \
+    --outdir $OUTDIR/unfoc1_THW_PBA0a_X66a_b \
+    --channels LoResInco7,LoResInco8 \
+    --output_samples 3200 --output_phases --bandpass --StackDepth 5 \
+    --IncoDepth 10 --Scale 20000 --blanking 200 --nmax 1000
 
+diff $OUTDIR/unfoc1_THW_PBA0a_X66a_{a,b}/MagLoResInco7
+diff $OUTDIR/unfoc1_THW_PBA0a_X66a_{a,b}/MagLoResInco8
 
 # Checksum all output data
 find $OUTDIR -type f -print0 | sort -z | xargs -r0 sha1sum -b > ${OUTDIR}.sha1

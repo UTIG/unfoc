@@ -410,7 +410,7 @@ def gen_ct(bxdsfile):
         fh = open(ctfile1, 'rt')
     elif os.path.exists(ctfile2):
         fh = gzip.open(ctfile2, 'rt')
-    else:
+    else: #pragma: no cover
         return
     for line in fh:
         fields = line.rstrip().split()
@@ -641,7 +641,6 @@ def main():
     # type: () -> None
 
 
-    # TODO: move to main
     parser = argparse.ArgumentParser(description='Pulse compress radar data')
 
     parser.add_argument('--outdir', required=True,
@@ -685,17 +684,27 @@ def main():
                     format='pik1: [%(levelname)-5s] %(message)s',
                    )
 
+    if args.channel_def: # legacy channel definitions
+        channel_specs = parse_channels(args.channel_def)
+        logging.debug("%r" % channel_specs)
+    else:
+        channel_specs = get_utig_channels(args.channels)
+
+
 
     return unfoc(outdir=args.outdir,  infile=args.infile,
-                 channels=args.channels, output_samples=args.output_samples,
+                 channels=channel_specs, output_samples=args.output_samples,
                 stackdepth=args.StackDepth, incodepth=args.IncoDepth,
                 blanking=args.blanking, bandpass=args.bandpass,
-                scale=args.Scale, nmax=args.nmax)
+                scale=args.Scale, output_phases=args.output_phases, nmax=args.nmax)
 
 
 
 def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
-          blanking, bandpass, scale=20000, nmax=0):
+          blanking, bandpass, scale=20000, output_phases=False, nmax=0):
+
+    # pass through if this is a legacy ChannelSpec object
+    channel_specs = get_utig_channels(channels) if type(channels) == 'str' else channels
 
     # Obtain reference chirp
     ref_chirp = get_ref_chirp(bandpass, output_samples)
@@ -704,8 +713,6 @@ def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
     hfilter = get_hfilter(output_samples)
 
     ## Filter Chirp
-    # disable for production work
-    # plt.plot(hfilter, range(0,filter.size))
     ref_chirp = np.multiply(ref_chirp, hfilter)
 
 
@@ -716,8 +723,6 @@ def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
     """
 
     # Read traces from file
-    # TODO: This is where we need to be able to read RADnh5 instead
-    #tracegen = read_RADnh3_gen(args.infile, channel_specs, args.input_samples)
     tracegen = read_RADnhx_gen(infile, channel_specs)
     # Demultiplex stacks and generate coherently-stacked traces
     stackgen = stacks_gen(tracegen, channel_specs, stackdepth)
@@ -736,9 +741,9 @@ def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
     for p1cs in channel_specs:
         outfiles[p1cs.chanout] = PIK1OutputFile(outdir,
                                                 p1cs.chanout,
-                                                Scale,
-                                                StackDepth,
-                                                IncoDepth)
+                                                scale,
+                                                stackdepth,
+                                                incodepth)
         outfiles[p1cs.chanout].open(infile, do_phase=output_phases)
 
     for ii, rec in enumerate(istackgen):
