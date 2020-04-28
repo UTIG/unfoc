@@ -550,7 +550,7 @@ class PIK1OutputFile(object):
         self.TraceNumbersFD = open(self.TracesFileName, 'wt')
 
         ###### FIXME? - request hdr file from xlob and read/forward
-        # TODO: collect this information into a data structure rather than reading directly from args.
+        # TODO: collect this information into a data structure rather than reading directly from 
         ###### Make this Meta similar
         self.MetaOutFD.write("#ChannelNum = " + str(self.ChannelNum) + "\n")
         self.MetaOutFD.write("#StackDepth = " + str(self.StackDepth) + "\n")
@@ -637,84 +637,10 @@ def get_hfilter(trunc_sweep_length):
                          np.zeros(min_freq - 1)))
     return hfilter
 
-def main(args):
-    # type: (Any) -> None
-    LOGLEVEL = logging.DEBUG if args.debug else logging.INFO
-    logging.basicConfig(level=LOGLEVEL, stream=sys.stdout,
-                    format='pik1: [%(levelname)-5s] %(message)s',
-                   )
-
-    # Obtain reference chirp
-    ref_chirp = get_ref_chirp(args.bandpass, args.output_samples)
-
-    # Compute Hamming Filter
-    hfilter = get_hfilter(args.output_samples)
-
-    ## Filter Chirp
-    # disable for production work
-    # plt.plot(hfilter, range(0,filter.size))
-    ref_chirp = np.multiply(ref_chirp, hfilter)
-
-    if args.channels:
-        channel_specs = get_utig_channels(args.channels)
-    else:
-        channel_specs = parse_channels(args.channel_def)
-    if not channel_specs:
-        raise ValueError("Did not find any valid channels to generate")
+def main():
+    # type: () -> None
 
 
-    logging.debug("%r" % channel_specs)
-
-    """
-    This shows how to construct a filter pipeline using generators.
-    tracegen takes as input a bxds file (and ct file, implicitly), and generates raw Traces().
-
-    """
-
-    # Read traces from file
-    # TODO: This is where we need to be able to read RADnh5 instead
-    #tracegen = read_RADnh3_gen(args.infile, channel_specs, args.input_samples)
-    tracegen = read_RADnhx_gen(args.infile, channel_specs)
-    # Demultiplex stacks and generate coherently-stacked traces
-    stackgen = stacks_gen(tracegen, channel_specs, args.StackDepth)
-    # Dechirp coherent stacks
-    dechirpgen = denoise_and_dechirp_gen(stackgen, ref_chirp, args.blanking,
-                                         args.output_samples,
-                                         not args.bandpass)
-    # Incoherently stack
-    istackgen = inco_stacks_gen(dechirpgen, channel_specs, args.IncoDepth,
-                                args.output_samples, do_phase=args.output_phases)
-
-    # Initialize output files
-    if not os.path.exists(args.outdir):
-        os.makedirs(args.outdir)
-    outfiles = {}
-    for p1cs in channel_specs:
-        outfiles[p1cs.chanout] = PIK1OutputFile(args.outdir,
-                                                p1cs.chanout,
-                                                args.Scale,
-                                                args.StackDepth,
-                                                args.IncoDepth)
-        outfiles[p1cs.chanout].open(args.infile, do_phase=args.output_phases)
-
-    for ii, rec in enumerate(istackgen):
-        if rec.channel in outfiles:
-            outfiles[rec.channel].write_record(rec)
-        else:
-            raise ValueError("Invalid output channel %d" % rec.channel)
-        if args.nmax > 0 and ii >= args.nmax:
-            break
-
-    for p1cs in channel_specs:
-        outfiles[p1cs.chanout].close()
-
-
-def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth, scale,
-          blanking, bandpass, nmax):
-    # TODO: make callable without making system calls
-    pass
-
-if __name__ == "__main__":
     # TODO: move to main
     parser = argparse.ArgumentParser(description='Pulse compress radar data')
 
@@ -732,14 +658,14 @@ if __name__ == "__main__":
     parser.add_argument('--output_samples', required=True, type=int,
                         help='Length of each output sweep (in samples)')
     parser.add_argument('--StackDepth', required=True, type=int,
-                        help='coherent stacking depth for this output')
+                        help='coherent stacking depth')
     parser.add_argument('--IncoDepth', required=True, type=int,
-                        help='incoherent stacking depth for this output')
+                        help='incoherent stacking depth')
 
     parser.add_argument('--Scale', type=int, default=20000,
                         help='Output scale default is 1000*dB')
     parser.add_argument('--blanking', type=int, default=50,
-                        help='Samples at the top of the record to blank out')
+                        help='Samples at the top of the record to blank out. Negative number blanks bottom')
 
     parser.add_argument('--output_phases', action='store_true',
                         help="output phase, in addition to magnitude")
@@ -752,13 +678,81 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    do_profile = False
-    if do_profile: # pragma: no cover
-        import os
-        prof_file = "/tmp/pik1b.{0:d}.prof".format(os.getpid())
-        cProfile.run('main(args)', prof_file)
-        import pstats
-        p = pstats.Stats(prof_file)
-        p.sort_stats('cumulative').print_stats(50)
-    else:
-        main(args)
+
+
+    LOGLEVEL = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(level=LOGLEVEL, stream=sys.stdout,
+                    format='pik1: [%(levelname)-5s] %(message)s',
+                   )
+
+
+    return unfoc(outdir=args.outdir,  infile=args.infile,
+                 channels=args.channels, output_samples=args.output_samples,
+                stackdepth=args.StackDepth, incodepth=args.IncoDepth,
+                blanking=args.blanking, bandpass=args.bandpass,
+                scale=args.Scale, nmax=args.nmax)
+
+
+
+def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
+          blanking, bandpass, scale=20000, nmax=0):
+
+    # Obtain reference chirp
+    ref_chirp = get_ref_chirp(bandpass, output_samples)
+
+    # Compute Hamming Filter
+    hfilter = get_hfilter(output_samples)
+
+    ## Filter Chirp
+    # disable for production work
+    # plt.plot(hfilter, range(0,filter.size))
+    ref_chirp = np.multiply(ref_chirp, hfilter)
+
+
+    """
+    This shows how to construct a filter pipeline using generators.
+    tracegen takes as input a bxds file (and ct file, implicitly), and generates raw Traces().
+
+    """
+
+    # Read traces from file
+    # TODO: This is where we need to be able to read RADnh5 instead
+    #tracegen = read_RADnh3_gen(args.infile, channel_specs, args.input_samples)
+    tracegen = read_RADnhx_gen(infile, channel_specs)
+    # Demultiplex stacks and generate coherently-stacked traces
+    stackgen = stacks_gen(tracegen, channel_specs, stackdepth)
+    # Dechirp coherent stacks
+    dechirpgen = denoise_and_dechirp_gen(stackgen, ref_chirp, blanking,
+                                         output_samples,
+                                         not bandpass)
+    # Incoherently stack
+    istackgen = inco_stacks_gen(dechirpgen, channel_specs, incodepth,
+                                output_samples, do_phase=output_phases)
+
+    # Initialize output files
+    if not os.path.exists(outdir):
+        os.makedirs(outdir)
+    outfiles = {}
+    for p1cs in channel_specs:
+        outfiles[p1cs.chanout] = PIK1OutputFile(outdir,
+                                                p1cs.chanout,
+                                                Scale,
+                                                StackDepth,
+                                                IncoDepth)
+        outfiles[p1cs.chanout].open(infile, do_phase=output_phases)
+
+    for ii, rec in enumerate(istackgen):
+        if rec.channel in outfiles:
+            outfiles[rec.channel].write_record(rec)
+        else:
+            raise ValueError("Invalid output channel %d" % rec.channel)
+        if nmax > 0 and ii >= nmax:
+            break
+
+    for p1cs in channel_specs:
+        outfiles[p1cs.chanout].close()
+
+
+
+if __name__ == "__main__":
+    sys.exit(main())
