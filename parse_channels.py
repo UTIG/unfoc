@@ -52,6 +52,7 @@ def parse_channels(chanstr):
     try:
         # Assume it's a simple integer
         chan = int(chanstr)
+        print("WARNING: specifying a channel as a simple integer is deprecated and leads to incorrect results.")
         return [PIK1ChannelSpec._make([chan, chan, 1, 0, 0])];
     except ValueError as e:
         # If not, that's ok.
