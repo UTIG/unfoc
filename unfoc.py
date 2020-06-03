@@ -397,6 +397,30 @@ def get_radar_stream(filename):
         else:
             raise ValueError("Can't determine stream for file %s" % filename)
 
+
+def get_radar_type(bxdsfile, nrecords=1000):
+    """ Inspect a raw datafile and detect what type of radar it came from
+    returns 'HiCARS2' if it is a 1-antenna radar, or 'MARFA' if it is a 2-antenna
+    radar.
+    """
+    # Use a nominal channel spec that makes it return all records
+    channel_specs = [PIK1ChannelSpec(chanout=1, chan0in=1, scalef0=1, chan1in=3, scalef1=1), # sum left and right low gain
+                    PIK1ChannelSpec(chanout=2, chan0in=2, scalef0=1, chan1in=4, scalef1=1), # sum left and right high gain
+                    ]
+
+    choffs = {}
+    for ii, trace in enumerate(read_RADnhx_gen(bxdsfile, channel_specs)):
+        choffs[trace.channel] = choffs.get(trace.channel, 0) + 1
+        if ii >= nrecords or len(choffs) >= 3:
+            break
+
+
+    if len(choffs) >= 3:
+        return 'MARFA'
+    else:
+        assert len(choffs) == 2
+        return 'HiCARS2'
+
 CT_t = namedtuple('CT', 'seq tim')
 def gen_ct(bxdsfile):
     """ Generate ct data from the ct file associated with bxdsfile
@@ -423,7 +447,8 @@ def gen_ct(bxdsfile):
 # TODO: This doesn't yet filter on channels, which should be OK - the
 # downstream users ALSO check channel.
 def read_RADnhx_gen(input_filename, channel_specs):
-    # type: (str, List[PIK1ChannelSpec]) -> Generator[Trace, None, None]
+    # type: (str, List[PIK1ChannelSpec]) -> Generator[Trace]
+
 
     stream = get_radar_stream(input_filename)
     if stream == "RADnh3":
@@ -492,6 +517,10 @@ def read_RADnhx_gen(input_filename, channel_specs):
             else:
                 # Skip the rest of this record without yielding any values
                 fd.seek(4*input_samples, os.SEEK_CUR)
+
+
+
+
 
 
 class PIK1OutputFile(object):
