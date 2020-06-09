@@ -374,8 +374,8 @@ def inco_stacks_gen(traces, # type: Generator[Trace, None, None]
 def get_radar_stream(filename):
     # type: (str) -> str
     # both RADnh3 and RADnh5 are the same first elements in header format
-    fmtstr='>HBBBBBB'
-    fmtlen=struct.calcsize(fmtstr)
+    fmtstr = '>HBBBBBB'
+    fmtlen = struct.calcsize(fmtstr)
     with open(filename, 'rb') as fd:
         # read header
         buff = fd.read(fmtlen)
@@ -409,11 +409,12 @@ def get_radar_type(bxdsfile, nrecords=1000):
                     ]
 
     choffs = {}
-    for ii, trace in enumerate(read_RADnhx_gen(bxdsfile, channel_specs)):
+    gen = read_RADnhx_gen(bxdsfile, channel_specs)
+    for ii, trace in enumerate(gen):
         choffs[trace.channel] = choffs.get(trace.channel, 0) + 1
         if ii >= nrecords or len(choffs) >= 3:
             break
-
+    gen.close()
 
     if len(choffs) >= 3:
         return 'MARFA'
@@ -710,14 +711,16 @@ def main():
 
     LOGLEVEL = logging.DEBUG if args.debug else logging.INFO
     logging.basicConfig(level=LOGLEVEL, stream=sys.stdout,
-                    format='pik1: [%(levelname)-5s] %(message)s',
+                    format='unfoc: [%(levelname)-5s] %(message)s',
                    )
 
     if args.channel_def: # legacy channel definitions
         channel_specs = parse_channels(args.channel_def)
-        logging.debug("%r" % channel_specs)
+        logging.debug("Channel spec: %r" % channel_specs)
     else:
-        channel_specs = get_utig_channels(args.channels)
+        radartype = get_radar_type(args.infile)
+        logging.info("Radar type: " + radartype)
+        channel_specs = get_utig_channels(args.channels, radar=radartype)
 
 
 
@@ -732,8 +735,15 @@ def main():
 def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
           blanking, bandpass, scale=20000, output_phases=False, nmax=0):
 
+
+
     # pass through if this is a legacy ChannelSpec object
-    channel_specs = get_utig_channels(channels) if type(channels) == 'str' else channels
+    if type(channels) == 'str':
+        radartype = get_radar_type(infile)
+        logging.info("Radar type: " + radartype)
+        channel_specs = get_utig_channels(channels, radar=radartype)
+    else:
+        channel_specs = channels
 
     # Obtain reference chirp
     ref_chirp = get_ref_chirp(bandpass, output_samples)

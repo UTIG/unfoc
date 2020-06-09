@@ -98,7 +98,7 @@ $COV run $COVFLAGS ../unfoc.py \
     --infile $WAIS/orig/xlob/ASB1/GCX0e/R40a/RADnh5/bxds \
     --outdir $OUTDIR/ASB1/GCX0e/R40a/RADnh5 \
     --channel_def ${HICARS2_CHANNELS}  --output_samples 3200 --output_phases --bandpass \
-    --StackDepth 10 --IncoDepth 5  --Scale 20000  --blanking 200 $UNFOCFLAGS
+    --StackDepth 10 --IncoDepth 5  --Scale 20000  --blanking 200 $UNFOCFLAGS --nmax 2000
 
 
 # Read a RADnh5 from JKB (MARFA)
@@ -109,28 +109,30 @@ $COV run $COVFLAGS ../unfoc.py \
     --StackDepth 10 --IncoDepth 5  --Scale 20000  --blanking 200
 
 
+# TODO: use a shortened bxds file
+
 # Use --channels flag
 $COV run $COVFLAGS ../unfoc.py \
     --infile $WAIS/orig/xlob/THW/PBA0a/X66a/RADnh5/bxds \
     --outdir $OUTDIR/unfoc1_THW_PBA0a_X66a_a \
     --channels LoResInco1,LoResInco2,LoResInco3,LoResInco4,LoResInco5,LoResInco6,LoResInco7,LoResInco8 \
     --output_samples 3200 --output_phases --bandpass --StackDepth 10 \
-    --IncoDepth 5 --Scale 20000 --blanking 200 --nmax 1000
+    --IncoDepth 10 --Scale 20000 --blanking 200
 
 # Use --channels flag with just channels 7,8
 $COV run $COVFLAGS ../unfoc.py \
     --infile $WAIS/orig/xlob/THW/PBA0a/X66a/RADnh5/bxds \
     --outdir $OUTDIR/unfoc1_THW_PBA0a_X66a_b \
     --channels LoResInco7,LoResInco8 \
-    --output_samples 3200 --output_phases --bandpass --StackDepth 5 \
-    --IncoDepth 10 --Scale 20000 --blanking 200 --nmax 1000
+    --output_samples 3200 --output_phases --bandpass --StackDepth 10 \
+    --IncoDepth 10 --Scale 20000 --blanking 200
 
-diff $OUTDIR/unfoc1_THW_PBA0a_X66a_{a,b}/MagLoResInco7
-diff $OUTDIR/unfoc1_THW_PBA0a_X66a_{a,b}/MagLoResInco8
+diff $OUTDIR/unfoc1_THW_PBA0a_X66a_{a,b}/MagLoResInco7 && true
+diff $OUTDIR/unfoc1_THW_PBA0a_X66a_{a,b}/MagLoResInco8 && true
 
 # Checksum all output data
 find $OUTDIR -type f -print0 | sort -z | xargs -r0 sha1sum -b > ${OUTDIR}.sha1
-
+echo "${S0}: Wrote sha1sum to ${OUTDIR}.sha1"
 
 
 

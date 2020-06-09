@@ -28,23 +28,33 @@ PIK1ChannelSpec = collections.namedtuple("PIK1ChannelSpec",
 # A quick reference for how to set up pik1 to make the UTIG data correctly
 
 UTIG_CHANNELS = {
-'LoResInco1': PIK1ChannelSpec(chanout=1, chan0in=1, scalef0=1, chan1in=3, scalef1=1), # sum left and right low gain
-'LoResInco2': PIK1ChannelSpec(chanout=2, chan0in=2, scalef0=1, chan1in=4, scalef1=1), # sum left and right high gain
-'LoResInco3': PIK1ChannelSpec(chanout=3, chan0in=1, scalef0=1, chan1in=3, scalef1=-1), # diff left and right low gain
-'LoResInco4': PIK1ChannelSpec(chanout=4, chan0in=2, scalef0=1, chan1in=4, scalef1=-1), # diff left and right high gain
-'LoResInco5': PIK1ChannelSpec(chanout=5, chan0in=1, scalef0=1, chan1in=0, scalef1=0), # left low
-'LoResInco6': PIK1ChannelSpec(chanout=6, chan0in=2, scalef0=1, chan1in=0, scalef1=0), # left high
-'LoResInco7': PIK1ChannelSpec(chanout=7, chan0in=3, scalef0=1, chan1in=0, scalef1=0), # right low
-'LoResInco8': PIK1ChannelSpec(chanout=8, chan0in=4, scalef0=1, chan1in=0, scalef1=0), # right high
+'MARFA': {
+    'LoResInco1': PIK1ChannelSpec(chanout=1, chan0in=1, scalef0=1, chan1in=3, scalef1=1), # sum left and right low gain
+    'LoResInco2': PIK1ChannelSpec(chanout=2, chan0in=2, scalef0=1, chan1in=4, scalef1=1), # sum left and right high gain
+    'LoResInco3': PIK1ChannelSpec(chanout=3, chan0in=1, scalef0=1, chan1in=3, scalef1=-1), # diff left and right low gain
+    'LoResInco4': PIK1ChannelSpec(chanout=4, chan0in=2, scalef0=1, chan1in=4, scalef1=-1), # diff left and right high gain
+    'LoResInco5': PIK1ChannelSpec(chanout=5, chan0in=1, scalef0=1, chan1in=0, scalef1=0), # left low
+    'LoResInco6': PIK1ChannelSpec(chanout=6, chan0in=2, scalef0=1, chan1in=0, scalef1=0), # left high
+    'LoResInco7': PIK1ChannelSpec(chanout=7, chan0in=3, scalef0=1, chan1in=0, scalef1=0), # right low
+    'LoResInco8': PIK1ChannelSpec(chanout=8, chan0in=4, scalef0=1, chan1in=0, scalef1=0), # right high
+},
+'HiCARS2': {
+    'LoResInco1': PIK1ChannelSpec(chanout=1, chan0in=1, scalef0=1, chan1in=0, scalef1=0), # pass low gain
+    'LoResInco2': PIK1ChannelSpec(chanout=2, chan0in=2, scalef0=1, chan1in=0, scalef1=0), # pass high gain
+},
 }
+UTIG_CHANNELS['HERA'] = UTIG_CHANNELS['MARFA']
 
 
-def get_utig_channels(chanstr):
-    """ Expects a comma-separated list of channels to produce. Case sensitive. """
+def get_utig_channels(chanstr, radar='MARFA'):
+    """ Expects a comma-separated list of channels to produce. Case sensitive.
+    Radar is a string describing the radar data format.
+    Recommend to use unfoc.py autodetect function (get_radar_type)
+    """
     # type: (str) -> List[PIK1ChannelSpec]
     list_config = [] # type: List[PIK1ChannelSpec]
     for name in chanstr.split(','):
-        list_config.append(UTIG_CHANNELS[name])
+        list_config.append(UTIG_CHANNELS[radar][name])
     return list_config
 
 def parse_channels(chanstr):
@@ -52,7 +62,7 @@ def parse_channels(chanstr):
     try:
         # Assume it's a simple integer
         chan = int(chanstr)
-        print("WARNING: specifying a channel as a simple integer is deprecated and leads to incorrect results.")
+        print("WARNING: specifying a channel as a simple integer is deprecated.")
         return [PIK1ChannelSpec._make([chan, chan, 1, 0, 0])];
     except ValueError as e:
         # If not, that's ok.
