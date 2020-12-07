@@ -698,8 +698,10 @@ def main():
 
     parser.add_argument('--output_phases', action='store_true',
                         help="output phase, in addition to magnitude")
+
     parser.add_argument('--bandpass', action='store_true',
-                        help='bandpass sampling, false is for legacy hicars. Disables cinterp and flips the chirp')
+                        help='Process bandpass-sampled data (not for use with data from HiCARS/HiCARS2). Disable cinterp and flips the chirp.')
+
     parser.add_argument('--nmax', default=0, type=int,
                         help="Maximum number of stacks to output (usually used for testing")
     parser.add_argument('--debug', action='store_true',
@@ -768,7 +770,7 @@ def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
     # Dechirp coherent stacks
     dechirpgen = denoise_and_dechirp_gen(stackgen, ref_chirp, blanking,
                                          output_samples,
-                                         not bandpass)
+                                         do_cinterp=not bandpass)
     # Incoherently stack
     istackgen = inco_stacks_gen(dechirpgen, channel_specs, incodepth,
                                 output_samples, do_phase=output_phases)
