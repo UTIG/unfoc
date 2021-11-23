@@ -580,12 +580,12 @@ class PIK1OutputFile(object):
         self.TraceNumbersFD = open(self.TracesFileName, 'wt')
 
         ###### FIXME? - request hdr file from xlob and read/forward
-        # TODO: collect this information into a data structure rather than reading directly from 
+        # TODO: collect this information into a data structure rather than reading directly from
         ###### Make this Meta similar
-        self.MetaOutFD.write("#ChannelNum = " + str(self.ChannelNum) + "\n")
-        self.MetaOutFD.write("#StackDepth = " + str(self.StackDepth) + "\n")
-        self.MetaOutFD.write("#IncoDepth = "  + str(self.IncoDepth) + "\n")
-        self.MetaOutFD.write("#Scale = "      + str(self.MagScale) + "\n")
+        self.MetaOutFD.write("#ChannelNum = %d\n" % self.ChannelNum)
+        self.MetaOutFD.write("#StackDepth = %d\n" % self.StackDepth)
+        self.MetaOutFD.write("#IncoDepth = %d\n" % self.IncoDepth)
+        self.MetaOutFD.write("#Scale = %d\n" % self.MagScale)
         self.MetaOutFD.write("#Log = TRUE\n")
 
     def write_record(self, inco_trace):
@@ -604,10 +604,10 @@ class PIK1OutputFile(object):
             ScaledMag.tofile(self.MagOutFD)
 
         if self.TraceNumbersFD is not None:
-            self.TraceNumbersFD.write(str(inco_trace.ct.seq) + "\n")
+            self.TraceNumbersFD.write("%d\n" % inco_trace.ct.seq)
 
         if self.enable_meta_idx:
-            self.MetaOutFD.write(str(self.record_idx) + "\n")
+            self.MetaOutFD.write("%d\n" % self.record_idx)
         self.record_idx += self.record_increment
 
     def close(self):
