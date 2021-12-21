@@ -70,15 +70,28 @@ UTIG_CHANNELS['HERA'] = UTIG_CHANNELS['MARFA']
 UTIG_CHANNELS['MPOL'] = UTIG_CHANNELS['MARFA']
 
 
-def get_utig_channels(chanstr, radar='MARFA'):
+def get_utig_channels(chanstr, radar='MARFA', input_channels=None):
     """ Expects a comma-separated list of channels to produce. Case sensitive.
     Radar is a string describing the radar data format.
     Recommend to use unfoc.py autodetect function (get_radar_type)
+
+    If input_channels is provided, this is a list of input channels available in the input
+    raw data file. Output channels are filtered according to the
+    available channels.
+
+    Note that input_channels and Pik1ChannelSpec both use 1-based indexing.
+
     """
     # type: (str) -> List[PIK1ChannelSpec]
     list_config = [] # type: List[PIK1ChannelSpec]
     for name in chanstr.split(','):
-        list_config.append(UTIG_CHANNELS[radar][name])
+        p1cs = UTIG_CHANNELS[radar][name]
+        if input_channels is not None and (\
+           (p1cs.chan0in > 0 and p1cs.chan0in not in input_channels) or \
+           (p1cs.chan1in > 0 and p1cs.chan1in not in input_channels)):
+                continue
+        # Only add to config if input is available.
+        list_config.append(p1cs)
     return list_config
 
 def parse_channels(chanstr):

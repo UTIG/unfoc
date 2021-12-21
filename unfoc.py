@@ -397,12 +397,13 @@ def get_radar_stream(filename):
         else:
             raise ValueError("Can't determine stream for file %s" % filename)
 
-
-def get_radar_type(bxdsfile, nrecords=1000):
+def get_radar_type(bxdsfile, nrecords=2000):
     """ Inspect a raw datafile and detect what type of radar it came from
     returns 'HiCARS2' if it is a 1-antenna radar, or 'MARFA' if it is a 2-antenna
     radar.
     """
+    """ Inspect a raw datafile and detect all of the channels
+    in this file """
     wanted_channels = [0, 2, 4, 64, 64+2, 64+4]
     MAX_CHANNELS = len(wanted_channels)*2
     channel_specs = [PIK1ChannelSpec(chanout=ii, chan0in=ii, scalef0=1, chan1in=ii+1, scalef1=1)
@@ -416,12 +417,12 @@ def get_radar_type(bxdsfile, nrecords=1000):
 
     logging.debug("get_radar_type found channels: %s", sorted(chans))
     if len(chans) >= 6:
-        return 'MPOL'
+        return 'MPOL', chans
     if len(chans) >= 4:
-        return 'MARFA'
+        return 'MARFA', chans
     else:
         assert len(chans) == 2
-        return 'HiCARS2'
+        return 'HiCARS2', chans
 
 CT_t = namedtuple('CT', 'seq tim')
 def gen_ct(bxdsfile):
@@ -723,9 +724,9 @@ def main():
         channel_specs = parse_channels(args.channel_def)
         logging.debug("Channel spec: %r" % channel_specs)
     else:
-        radartype = get_radar_type(args.infile)
+        radar_type, data_channels = get_radar_type(args.infile)
         logging.info("Radar type: %s", radartype)
-        channel_specs = get_utig_channels(args.channels, radar=radartype)
+        channel_specs = get_utig_channels(args.channels, radar=radartype, input_channels=data_channels)
 
 
 
@@ -743,10 +744,10 @@ def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
 
 
     # pass through if this is a legacy ChannelSpec object
-    if type(channels) == 'str':
-        radartype = get_radar_type(infile)
-        logging.info("Radar type: " + radartype)
-        channel_specs = get_utig_channels(channels, radar=radartype)
+    if type(channels) == str:
+        radar_type, data_channels = get_radar_type(infile)
+        logging.info("Radar channels in file: %r", sorted(data_channels))
+        channel_specs = get_utig_channels(channels, radar=radar_type, input_channels=data_channels)
     else:
         channel_specs = channels
 
