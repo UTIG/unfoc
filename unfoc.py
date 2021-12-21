@@ -214,8 +214,8 @@ class SingleStack:
         if self.idx >= self.depth:
             self.idx = 0
             # Select the center of the coherent stack as the ct
-            logging.debug("Selecting CT {:d} of [0,{:d}, depth={:d})".format(self.stack_center, len(self.cts), self.depth))
-            logging.debug(str(self.cts))
+            logging.debug("Selecting CT %d of [0, %d, depth=%d]", self.stack_center, len(self.cts), self.depth)
+            logging.debug('%r', self.cts)
             ct = self.cts[self.stack_center]
             self.cts = []
             if self.presum:
@@ -318,8 +318,8 @@ def stacks_gen(traces, # type: List[Trace]
     # type: (...) -> Generator[Trace, None, None]
     stacks = [] # type: List[PairedStack]
     ss0 = {} # type: Dict[int, SingleStack]
-    for (idx, p1cs) in enumerate(channel_specs):
-        logging.debug("p1cs[%d]=%s"% (idx, str(p1cs)))
+    for idx, p1cs in enumerate(channel_specs):
+        logging.debug("p1cs[%d]=%r", idx, p1cs)
         stacks.append(PairedStack(p1cs, depth))
         for chan in (p1cs.chan0in, p1cs.chan1in):
             if chan > 0 and chan not in ss0:
@@ -333,7 +333,7 @@ def stacks_gen(traces, # type: List[Trace]
             cohstack = ss0[trace.channel].add_trace(np.float64(trace.data), trace.ct)
 
             if cohstack is not None:
-                for (idx, p1cs) in enumerate(channel_specs):
+                for idx, p1cs in enumerate(channel_specs):
                     # Test to prevent extraneous calls to add_stack()
                     if trace.channel in [p1cs.chan0in, p1cs.chan1in]:
                         stack, cts = cohstack
@@ -403,23 +403,24 @@ def get_radar_type(bxdsfile, nrecords=1000):
     returns 'HiCARS2' if it is a 1-antenna radar, or 'MARFA' if it is a 2-antenna
     radar.
     """
-    # Use a nominal channel spec that makes it return all records
-    channel_specs = [PIK1ChannelSpec(chanout=1, chan0in=1, scalef0=1, chan1in=3, scalef1=1), # sum left and right low gain
-                    PIK1ChannelSpec(chanout=2, chan0in=2, scalef0=1, chan1in=4, scalef1=1), # sum left and right high gain
-                    ]
+    wanted_channels = [0, 2, 4, 64, 64+2, 64+4]
+    MAX_CHANNELS = len(wanted_channels)*2
+    channel_specs = [PIK1ChannelSpec(chanout=ii, chan0in=ii, scalef0=1, chan1in=ii+1, scalef1=1)
+                    for ii in wanted_channels]
 
-    choffs = {}
-    gen = read_RADnhx_gen(bxdsfile, channel_specs)
-    for ii, trace in enumerate(gen):
-        choffs[trace.channel] = choffs.get(trace.channel, 0) + 1
-        if ii >= nrecords or len(choffs) >= 3:
+    chans = set()
+    for ii, trace in enumerate(read_RADnhx_gen(bxdsfile, channel_specs)):
+        chans.add(trace.channel)
+        if ii >= nrecords or len(chans) >= MAX_CHANNELS:
             break
-    gen.close()
 
-    if len(choffs) >= 3:
+    logging.debug("get_radar_type found channels: %s", sorted(chans))
+    if len(chans) >= 6:
+        return 'MPOL'
+    if len(chans) >= 4:
         return 'MARFA'
     else:
-        assert len(choffs) == 2
+        assert len(chans) == 2
         return 'HiCARS2'
 
 CT_t = namedtuple('CT', 'seq tim')
@@ -475,7 +476,7 @@ def read_RADnhx_gen(input_filename, channel_specs):
 
     genct = gen_ct(input_filename)
     if not genct:
-        logging.warning("Can't read corresponding ct file for " + input_filename)
+        logging.warning("Can't read corresponding ct file for %s", input_filename)
 
     with open(input_filename, 'rb') as fd:
         while True:
@@ -499,7 +500,9 @@ def read_RADnhx_gen(input_filename, channel_specs):
             if header.choff == 0xff:
                 choff = 0
             else:
-                choff = 0x0f & header.choff
+                # 0x40 is the flag for along-track transmit polarization
+                # 0x0f is the channel offset field
+                choff = 0x4f & header.choff
 
             # reclen = SweepLength
             input_samples = header.nsamp
@@ -703,7 +706,7 @@ def main():
                         help='Process bandpass-sampled data (for use with MARFA data, not for use with legacy HiCARS/HiCARS2 data). Disable cinterp and flips the chirp.')
 
     parser.add_argument('--nmax', default=0, type=int,
-                        help="Maximum number of stacks to output (usually used for testing")
+                        help="Maximum number of stacks to output (usually used for testing)")
     parser.add_argument('--debug', action='store_true',
                         help='Print debugging messages')
 
@@ -721,7 +724,7 @@ def main():
         logging.debug("Channel spec: %r" % channel_specs)
     else:
         radartype = get_radar_type(args.infile)
-        logging.info("Radar type: " + radartype)
+        logging.info("Radar type: %s", radartype)
         channel_specs = get_utig_channels(args.channels, radar=radartype)
 
 
@@ -797,7 +800,6 @@ def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
 
     for p1cs in channel_specs:
         outfiles[p1cs.chanout].close()
-
 
 
 if __name__ == "__main__":
