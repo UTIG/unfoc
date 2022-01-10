@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import logging
 import collections
 try:
     import typing
@@ -62,6 +63,7 @@ UTIG_CHANNELS = {
     #'LoResInco20': PIK1ChannelSpec(chanout=20, chan0in=8+0x40, scalef0=1, chan1in=0, scalef1=0), # cen-aft high (AT)
 },
 'HiCARS2': {
+    # For HiCARS, the first two digitizers represent combined data, so output to 1 and 2 not 5 and 6.
     'LoResInco1': PIK1ChannelSpec(chanout=1, chan0in=1, scalef0=1, chan1in=0, scalef1=0), # pass low gain
     'LoResInco2': PIK1ChannelSpec(chanout=2, chan0in=2, scalef0=1, chan1in=0, scalef1=0), # pass high gain
 },
@@ -84,7 +86,12 @@ def get_utig_channels(chanstr, radar='MARFA', input_channels=None):
     """
     # type: (str) -> List[PIK1ChannelSpec]
     list_config = [] # type: List[PIK1ChannelSpec]
+    assert radar in UTIG_CHANNELS
     for name in chanstr.split(','):
+        if name.startswith('LoResInco') and name not in UTIG_CHANNELS[radar]:
+            # Silently allow you to specify invalid LoResInco channels
+            logging.debug("unfoc::parse_channels: Channel %s isn't known for radar %s", name, radar)
+            continue
         p1cs = UTIG_CHANNELS[radar][name]
         if input_channels is not None and (\
            (p1cs.chan0in > 0 and p1cs.chan0in not in input_channels) or \
