@@ -169,7 +169,7 @@ def read_RADnhx_gen(bxds_filename, channel, stream=None):
                 continue
 
             i0 = fpos + headerlen + choff1 * nsamp
-            trace1 = np.frombuffer(mmbxds, dtype=np.int16, offset=i0, count=nsamp)
+            trace1 = np.frombuffer(mmbxds, dtype='>i2', offset=i0, count=nsamp)
 
             yield unfoc.Trace(channel, trace1, ctinfo)
     finally:
