@@ -164,12 +164,22 @@ def read_RADnhx_gen(bxds_filename, channel, stream=None):
 
         for radinfo, ctinfo in zip(index_RADnhx_bxds_mmap(bxds_filename, stream), ctgen):
             fpos, headerlen, rchoff, nsamp = radinfo
+            if rchoff == 0xff:
+                rchoff = 0
 
             if chfilter != rchoff:
                 continue
 
-            i0 = fpos + headerlen + choff1 * nsamp
-            trace1 = np.frombuffer(mmbxds, dtype='>i2', offset=i0, count=nsamp)
+            i0 = fpos + headerlen + choff1 * nsamp * 2
+            try:
+                trace1 = np.frombuffer(mmbxds, dtype='>i2', offset=i0, count=nsamp)
+            except ValueError as e: # pragma: no cover
+                # maybe short read?
+                fsize = os.path.getsize(bxds_filename)
+                logging.debug("read_radnhx_gen: File size=%d bytes; read from byte %d", fsize, i0)
+                logging.debug("read_radnhx_gen: %r", e)
+                #logging.error("fpos=%d headerlen=%d choff1=%d nsamp=%d", fpos, headerlen, choff1, nsamp)
+                break # raise
 
             yield unfoc.Trace(channel, trace1, ctinfo)
     finally:
@@ -206,6 +216,8 @@ class BxdsMemmap:
         self.index = []
         choff = self.channel - self.channel & 1
         for item in index_RADnhx_bxds_mmap(self.filename, stream=stream):
+            if item[2] == 0xff:
+                item[2] = 0x00
             if item[2] == choff:
                 self.index.append(item)
 

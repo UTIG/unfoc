@@ -120,7 +120,8 @@ def denoise_and_dechirp(trace, # type: np.ndarray
                         ref_chirp, # type: np.ndarray
                         blanking, # type: int
                         output_samples, # type: int
-                        do_cinterp # type: bool
+                        do_cinterp, # type: bool
+                        detrend_type='linear'
                        ):
     # type: (...) -> np.ndarray
 
@@ -140,7 +141,7 @@ def denoise_and_dechirp(trace, # type: np.ndarray
     shifter = int(np.argmax(trace))
     trace = np.roll(trace, -shifter);
 
-    DFT = np.fft.fft(signal.detrend(trace, type='linear'))
+    DFT = np.fft.fft(signal.detrend(trace, type=detrend_type))
 
     if do_cinterp:
         # Remove five samples per cycle problem
@@ -213,6 +214,7 @@ class SingleStack:
 
         if self.idx >= self.depth:
             self.idx = 0
+            # This is coherent summing of a single trace
             # Select the center of the coherent stack as the ct
             logging.debug("Selecting CT {:d} of [0,{:d}, depth={:d})".format(self.stack_center, len(self.cts), self.depth))
             logging.debug(str(self.cts))
@@ -269,9 +271,11 @@ class PairedStack:
                 # number of fullstacks0
                 # we could try raising assertions that they are close to each other
             elif bDo0 and not bDo1:
+                # Inconsistent with SingleStack, we choose the last ct.
                 ct = self.ct0[-1]
                 array_out1 = scale0 * self.fullstacks0[-1]
             elif not bDo0 and bDo1:
+                # Inconsistent with SingleStack, we choose the last ct.
                 ct = self.ct1[-1]
                 array_out1 = scale1 * self.fullstacks1[-1]
 
@@ -554,6 +558,9 @@ class PIK1OutputFile(object):
         # Cache result for whether we need to do byte swapping
         self.do_byteswap = sys.byteorder == 'little'
 
+    def __del__(self):
+        self.close()
+
     def open(self, input_filename, do_phase=True, do_index=True):
         # type: (str, bool, bool) -> None
         '''
@@ -774,8 +781,8 @@ def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
                                 output_samples, do_phase=output_phases)
 
     # Initialize output files
-    if not os.path.exists(outdir):
-        os.makedirs(outdir)
+    os.makedirs(outdir, exist_ok=True)
+
     outfiles = {}
     for p1cs in channel_specs:
         outfiles[p1cs.chanout] = PIK1OutputFile(outdir,

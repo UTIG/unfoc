@@ -57,6 +57,7 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
 
     # Stack traces coherently
     coherent_chunker = chunks(sumchannel_gen, size=stackdepth)
+    # the last coherent trace is chosen when doing summed channels
     coh_trace_gen = map(stack_coherent_chunk, coherent_chunker)
 
     # dechirp
@@ -66,14 +67,15 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
     denoise_gen = map(f_denoise_and_dechirp, coh_trace_gen)
 
     # incoherently stack
-    inco_chunker = chunks(denoise_gen, size=incodepth)
-    igen1 = map(stack_inco_chunk, inco_chunker)
+    inco_chunker = chunks(denoise_gen, size=incodepth, incomplete=False)
+    igen1 = map(stack_inco_chunk, inco_chunker, itertools.repeat(p1cs.chanout))
 
 
+    os.makedirs(outdir, exist_ok=True)
     p1out = unfoc_mod.PIK1OutputFile(outdir, channel=p1cs.chanout,
                                      MagScale=20000, StackDepth=stackdepth, IncoDepth=incodepth)
 
-    p1out.open(infile, do_phase=True, do_index=True)
+    p1out.open(infile, do_phase=output_phases, do_index=True)
 
     t0 = time.time()
     # Run it all
@@ -84,18 +86,25 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
     p1out.close()
 
 
-def chunks(iterable, size=10):
+def chunks(iterable, size=10, incomplete=False):
     # https://stackoverflow.com/questions/24527006/\
     # split-a-generator-into-chunks-without-pre-walking-it/24527424
     iterator = iter(iterable)
     for first in iterator:
-        yield itertools.chain([first], itertools.islice(iterator, size - 1))
+        #yield itertools.chain([first], itertools.islice(iterator, size - 1))
+        data = list(itertools.chain([first], itertools.islice(iterator, size - 1)))
+        if not incomplete and len(data) != size:
+            # Don't return incomplete stacks
+            continue
+        yield data
 
 
-def stack_coherent_chunk(coherent_chunk_gen, size=None, dtype=np.float64):
+def stack_coherent_chunk(coherent_chunk_gen, ct_type='mid', dtype=np.float64):
     """ Stack a chunk of traces coherently
     and return a Trace object, the number of records,
     and metadata from  the input traces
+
+    ct_type can be any of 'first', 'mid', 'last' or 'all'
 
     """
     stacked = None
@@ -107,11 +116,20 @@ def stack_coherent_chunk(coherent_chunk_gen, size=None, dtype=np.float64):
         else:
             stacked += rec.data
 
+    if ct_type == 'first':
+        ctv = [ctinfos[0],]
+    elif ct_type == 'mid':
+        ctv = [ctinfos[len(ctinfos) // 2],]
+    elif ct_type == 'last':
+        ctv = [ctinfos[-1],]
+    else:
+        ctv = ctinfos
+
     stacked /= (nrecs+1)
-    return stacked, nrecs+1, ctinfos
+    return stacked, nrecs+1, ctv
 
 
-def stack_inco_chunk(inco_chunk_gen, dtype=None):
+def stack_inco_chunk(inco_chunk_gen, channel, dtype=None):
     """ Incoherently stack.
     Calculate magnitude and track phase.
     Return a summed magnitude trace,
@@ -132,11 +150,13 @@ def stack_inco_chunk(inco_chunk_gen, dtype=None):
         else:
             magnitude += np.abs(data)
 
-    magnitude /= len(traces)
-    ct = list_cts[0] # len(list_cts) // 2] apparently we just return the first one
-    phs = np.angle(traces[len(traces)//2])
+    ntraces = len(traces)
+    magnitude /= ntraces
+    ct = list_cts[ntraces//2]
+    # convert to cdouble to match older version
+    phs = np.angle(traces[ntraces//2].astype(np.cdouble))
 
-    itrace = unfoc_mod.IncoherentTrace(channel=0, magnitude=magnitude, phase=phs, ct=ct)
+    itrace = unfoc_mod.IncoherentTrace(channel=channel, magnitude=magnitude, phase=phs, ct=ct)
     return itrace
 
 def sum_traces(traces, dtype=np.int32, channel=-1):
@@ -152,7 +172,8 @@ def denoise_and_dechirp(coherent_data, *args, **kwargs):
     """ Assumes that the input coherent_data has the same output parameter
     structure as stack_coherent_chunk """
     stacked, nrecs, ctinfos = coherent_data
-    dechirped = unfoc_mod.denoise_and_dechirp(stacked.astype(np.double), *args, **kwargs)
+    output_samples = kwargs['output_samples']
+    dechirped = unfoc_mod.denoise_and_dechirp(stacked[0:output_samples].astype(np.double), *args, **kwargs)
 
     # Should we use the first one?
     #return unfoc_mod.Trace(stacked.channel, dechirped, ctinfos[0])
