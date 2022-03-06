@@ -14,6 +14,7 @@ import os
 import sys
 import time
 import itertools
+import multiprocessing
 
 import mmap
 
@@ -24,7 +25,7 @@ import radbxds
 
 
 def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
-          blanking, bandpass, scale=20000, output_phases=False, nmax=0):
+          blanking, bandpass, scale=20000, output_phases=False, nmax=0, processes=1):
     """ Generate one output channel of unfoc data and write it to the
     specified output directory with the standard file naming. """
 
@@ -36,10 +37,19 @@ def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
     else:
         channel_specs = channels
 
-    # we can multiprocess here.
-    for channel_spec in channel_specs:
-        unfoc_chan(outdir, infile, channel_spec, output_samples, stackdepth, incodepth,
-          blanking, bandpass, scale, output_phases, nmax)
+    unfoc_args = lambda p1cs: (outdir, infile, p1cs, output_samples, stackdepth, incodepth,
+                       blanking, bandpass, scale, output_phases, nmax)
+    gen_args = map(unfoc_args, channel_specs)
+    if processes <= 1:
+        for _ in map(unfoc_chan_, gen_args):
+            pass
+    else:
+        with multiprocessing.Pool(processes) as pool:
+            for _ in pool.map(unfoc_chan_, gen_args):
+                pass
+
+def unfoc_chan_(args):
+    return unfoc_chan(*args)
 
 def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
           blanking, bandpass, scale=20000, output_phases=False, nmax=0):
@@ -76,9 +86,6 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
                                      MagScale=20000, StackDepth=stackdepth, IncoDepth=incodepth)
 
     p1out.open(infile, do_phase=output_phases, do_index=True)
-
-    t0 = time.time()
-    # Run it all
     for ii, istack in enumerate(igen1):
         p1out.write_record(istack)
         if nmax > 0 and ii >= nmax:
@@ -249,8 +256,10 @@ def main():
                         help="output phase, in addition to magnitude")
     parser.add_argument('--bandpass', action='store_true',
                         help='bandpass sampling, false is for legacy hicars. Disables cinterp and flips the chirp')
+    parser.add_argument('-j', '--jobs', default=1, type=int,
+                        help="Max number of CPUs to use for processing")
     parser.add_argument('--nmax', default=0, type=int,
-                        help="Maximum number of stacks to output (usually used for testing")
+                        help="Maximum number of stacks to output (usually used for testing)")
     parser.add_argument('--debug', action='store_true',
                         help='Print debugging messages')
 
@@ -261,8 +270,6 @@ def main():
     logging.basicConfig(level=LOGLEVEL, stream=sys.stdout,
                     format='unfoc: [%(levelname)-5s] %(message)s',
                    )
-
-
 
     unfoc(args.outdir, args.input, args.channels, args.output_samples, args.stackdepth, args.incodepth,
           args.blanking, args.bandpass, scale=args.scale, output_phases=False, nmax=args.nmax)

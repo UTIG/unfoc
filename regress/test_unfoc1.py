@@ -31,9 +31,9 @@ import unfoc
 import unfocb
 
 #TESTLIST = os.path.join(cwd, 'test_lists/available_radnh_bxds.txt')
-TESTLIST = os.path.join(cwd, 'test_lists/tests_level1.txt')
+TESTLIST = os.path.join(cwd, 'test_lists/tests_level0.txt')
 OUTPUTDIR = os.path.abspath(os.path.join(cwd, 'covdata'))
-
+DELETE_OUTPUT = True
 
 
 def read_testlist(testlist):
@@ -77,12 +77,33 @@ def is_bandpass(pst, snm):
     return is_bandpass
 
 class TestUnfoc(UnfocBase):
-    def test1(self):
-        os.makedirs(OUTPUTDIR, exist_ok=True)
-        testlist = os.path.join(cwd, 'test_lists/tests_level1.txt')
-        outprefix = os.path.join(OUTPUTDIR, 'unfoc_test1_')
+    def run_unfoc(self, unfoc_params, testlist, outprefix):
         channels_hc = 'LoResInco1,LoResInco2'
         channels_marfa = 'LoResInco1,LoResInco2,LoResInco5,LoResInco6,LoResInco7,LoResInco8'
+        os.makedirs(outprefix, exist_ok=True)
+        tempdir = tempfile.mkdtemp(prefix=outprefix)
+        try:
+            #with tempfile.TemporaryDirectory(prefix=outprefix, delete=False) as tempdir:
+            # Use list so we make sure it fully reads the test list before starting.
+            for pst, snm, bxds_input in list(read_testlist(testlist)):
+                with self.subTest(pst=pst, snm=snm):
+                    radartype = unfoc.get_radar_type(bxds_input)
+                    channels = channels_marfa if radartype == 'MARFA' else channels_hc
+
+                    outdir = os.path.join(tempdir, pst)
+                    os.makedirs(outdir, exist_ok=True)
+                    self.check_inputs_exist(bxds_input)
+                    unfocb.unfoc(infile=bxds_input, outdir=outdir, channels=channels, bandpass=is_bandpass(pst, snm), **unfoc_params)
+                    self.check_outputs_exist(outdir, channels)
+        finally:
+            if DELETE_OUTPUT:
+                import shutil
+                shutil.rmtree(tempdir)
+        return tempdir
+
+    def test1(self):
+        testlist = os.path.join(cwd, 'test_lists/tests_level0.txt')
+        outprefix = os.path.join(OUTPUTDIR, 'unfoc_test1_')
         unfoc_params = {
             'output_samples': 3200,
             'stackdepth': 10,
@@ -90,23 +111,23 @@ class TestUnfoc(UnfocBase):
             'blanking': 50,
             'nmax': 0,
             'output_phases': True,
+            'processes': 1,
         }
-        tempdir=tempfile.mkdtemp(prefix=outprefix)
-        for _ in range(1):
-        #with tempfile.TemporaryDirectory(prefix=outprefix, delete=False) as tempdir:
-            # Use list so we make sure it fully reads the test list before starting.
-            for pst, snm, bxds_input in list(read_testlist(testlist)):
-                with self.subTest(pst=pst, snm=snm):
-                    radartype = unfoc.get_radar_type(bxds_input)
-                    channels = channels_marfa if radartype == 'MARFA' else channels_hc
-                    p1cs = unfoc.get_utig_channels(channels, radar=radartype)
+        return self.run_unfoc(unfoc_params, testlist, outprefix)
 
-                    outdir = os.path.join(tempdir, pst)
-                    os.makedirs(outdir, exist_ok=True)
-                    self.check_inputs_exist(bxds_input)
-                    unfocb.unfoc(infile=bxds_input, outdir=outdir, channels=p1cs, bandpass=is_bandpass(pst, snm), **unfoc_params)
-                    self.check_outputs_exist(outdir, channels)
-
+    def test_multi(self):
+        testlist = os.path.join(cwd, 'test_lists/tests_level0.txt')
+        outprefix = os.path.join(OUTPUTDIR, 'unfoc_test1_')
+        unfoc_params = {
+            'output_samples': 3200,
+            'stackdepth': 10,
+            'incodepth': 5,
+            'blanking': 50,
+            'nmax': 0,
+            'output_phases': True,
+            'processes': 8,
+        }
+        return self.run_unfoc(unfoc_params, testlist, outprefix)
 
 
 def main():

@@ -35,17 +35,7 @@ from parse_channels import parse_channels, get_utig_channels, PIK1ChannelSpec
 enable_meta_index=True
 ################################################
 
-class Trace:
-    """
-    Pairs channel + data for a trace.
-    Data is either raw amplitudes, or complex amplitudes
-    Also adds ct
-    """
-    def __init__(self, channel, data, ct):
-        # type: (int, np.ndarray, Union[tuple,List[tuple]]) -> None
-        self.channel = channel
-        self.data = data
-        self.ct = ct # type: tuple
+from radbxds import Trace, get_radar_stream, gen_ct
 
 class IncoherentTrace:
     """
@@ -374,7 +364,7 @@ def inco_stacks_gen(traces, # type: Generator[Trace, None, None]
             if stack is not None:
                 yield stack
 
-
+"""
 def get_radar_stream(filename):
     # type: (str) -> str
     # both RADnh3 and RADnh5 are the same first elements in header format
@@ -400,7 +390,7 @@ def get_radar_stream(filename):
             return "RADnh3"
         else:
             raise ValueError("Can't determine stream for file %s" % filename)
-
+"""
 
 def get_radar_type(bxdsfile, nrecords=1000):
     """ Inspect a raw datafile and detect what type of radar it came from
@@ -715,7 +705,6 @@ def main():
     args = parser.parse_args()
 
 
-
     LOGLEVEL = logging.DEBUG if args.debug else logging.INFO
     logging.basicConfig(level=LOGLEVEL, stream=sys.stdout,
                     format='unfoc: [%(levelname)-5s] %(message)s',
@@ -725,10 +714,7 @@ def main():
         channel_specs = parse_channels(args.channel_def)
         logging.debug("Channel spec: %r" % channel_specs)
     else:
-        radartype = get_radar_type(args.infile)
-        logging.info("Radar type: " + radartype)
-        channel_specs = get_utig_channels(args.channels, radar=radartype)
-
+        channel_specs = args.channels
 
 
     return unfoc(outdir=args.outdir,  infile=args.infile,
@@ -741,7 +727,6 @@ def main():
 
 def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
           blanking, bandpass, scale=20000, output_phases=False, nmax=0):
-
 
 
     # pass through if this is a legacy ChannelSpec object

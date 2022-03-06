@@ -8,21 +8,17 @@ Read a radar bxds file and return traces
 Read the structure of a radar file
 """
 
-import argparse
 from collections import namedtuple
+import itertools
 import logging
 import os
-#import gzip
 import struct
-import sys
-import time
-import itertools
-
+import gzip
 import mmap
 
 import numpy as np
 
-import unfoc
+
 
 
 HEADER_FORMATS = {
@@ -39,9 +35,75 @@ HEADER_FORMATS = {
 }
 
 
+
+class Trace:
+    """
+    Pairs channel + data and CT metadata for a trace.
+    Data is either raw amplitudes, or complex amplitudes
+    """
+    def __init__(self, channel, data, ct):
+        # type: (int, np.ndarray, Union[tuple,List[tuple]]) -> None
+        self.channel = channel
+        self.data = data # type: np.ndarray
+        self.ct = ct # type: tuple
+
+
+
+
+def get_radar_stream(filename):
+    # type: (str) -> str
+    # both RADnh3 and RADnh5 are the same first elements in header format
+    fmtstr = '>HBBBBBB'
+    fmtlen = struct.calcsize(fmtstr)
+    with open(filename, 'rb') as fd:
+        # read header
+        buff = fd.read(fmtlen)
+        if len(buff) < fmtlen: # pragma: no cover
+            raise IOError("Unable to read %d bytes from %s." % (fmtlen, filename))
+
+        # TODO: This check should only  happen once, not every read!!
+        # Check it then set a flag and move the file pointer back to the start!
+        # Check the version byte and see if it is RADnh3 or RADnh5
+        try:
+            v = ord(buff[6]) # python 2
+        except TypeError:
+            v = int(buff[6]) # python 3
+        if v == 5:
+            return "RADnh5"
+        elif v == 0 or v == 255:
+            return "RADnh3"
+        else:
+            raise ValueError("Can't determine stream for file %s" % filename)
+
+
+CT_t = namedtuple('CT', 'seq tim')
+def gen_ct(bxdsfile):
+    """ Generate ct data from the ct file associated with bxdsfile
+    We only return relevant information. We actually only want the seq and ct tim.
+
+    """
+    datadir = os.path.dirname(bxdsfile)
+    ctfile1 = os.path.join(datadir, 'ct')
+    ctfile2 = os.path.join(datadir, 'ct.gz')
+    if os.path.exists(ctfile1):
+        fh = open(ctfile1, 'rt')
+    elif os.path.exists(ctfile2):
+        fh = gzip.open(ctfile2, 'rt')
+    else: #pragma: no cover
+        return
+    for line in fh:
+        fields = line.rstrip().split()
+        # e.g., THW PBA0a X66a 9644392 2020 02 02 03 22 59 70 2762000089
+        # yield ct, seq
+        yield CT_t(int(fields[3]), int(fields[11]))
+
+
+
+
 # Read individual traces out of RADnh3 or RADnh5 file
 # TODO: This doesn't yet filter on channels, which should be OK - the
 # downstream users ALSO check channel.
+
 def index_RADnhx_bxds(input_filename, stream=None):
     # type: (str) -> Generator[tuple]
     """ Read the positions of packets within a RADnh3 and RADnh5 bxds file
@@ -50,7 +112,7 @@ def index_RADnhx_bxds(input_filename, stream=None):
     """
 
     if stream is None:
-        stream = unfoc.get_radar_stream(input_filename)
+        stream = get_radar_stream(input_filename)
 
     if stream not in HEADER_FORMATS: # pragma: no cover
         raise ValueError("Invalid stream type for file: %s" % input_filename)
@@ -102,7 +164,7 @@ def index_RADnhx_bxds_mmap(input_filename, stream=None):
     """
 
     if stream is None:
-        stream = unfoc.get_radar_stream(input_filename)
+        stream = get_radar_stream(input_filename)
 
     if stream not in HEADER_FORMATS: # pragma: no cover
         raise ValueError("Invalid stream type for file: %s" % input_filename)
@@ -160,7 +222,7 @@ def read_RADnhx_gen(bxds_filename, channel, stream=None):
         fd = open(bxds_filename, 'rb')
         mmbxds = mmap.mmap(fd.fileno(), 0, access=mmap.ACCESS_READ)
 
-        ctgen = unfoc.gen_ct(bxds_filename)
+        ctgen = gen_ct(bxds_filename)
 
         for radinfo, ctinfo in zip(index_RADnhx_bxds_mmap(bxds_filename, stream), ctgen):
             fpos, headerlen, rchoff, nsamp = radinfo
@@ -173,125 +235,95 @@ def read_RADnhx_gen(bxds_filename, channel, stream=None):
             i0 = fpos + headerlen + choff1 * nsamp * 2
             try:
                 trace1 = np.frombuffer(mmbxds, dtype='>i2', offset=i0, count=nsamp)
-            except ValueError as e: # pragma: no cover
-                # maybe short read?
-                fsize = os.path.getsize(bxds_filename)
-                logging.debug("read_radnhx_gen: File size=%d bytes; read from byte %d", fsize, i0)
-                logging.debug("read_radnhx_gen: %r", e)
-                #logging.error("fpos=%d headerlen=%d choff1=%d nsamp=%d", fpos, headerlen, choff1, nsamp)
-                break # raise
+            except ValueError as e:
+                break # Not enough data
 
-            yield unfoc.Trace(channel, trace1, ctinfo)
+            yield Trace(channel, trace1, ctinfo)
     finally:
         mmbxds.close()
         fd.close()
 
 
-class BxdsMemmap:
-    """ Reader for random access to traces in a RADnh3 or RADnh5 bxds as numpy arrays """
-    def __init__(self, filename, channel, stream=None):
+class RadBxds:
+    """ Reader for random access to traces in a RADnh3 or RADnh5 bxds as numpy arrays
+    Future: add support for also auto-detecting RADjh1 bxds
+    """
+    def __init__(self, filename=None, channel=None, stream=None, ct=False):
         """ Initialize the reader to access one channel's records """
-        self.filename = filename
-        self.index = None
+        self.index = []
         self.mmbxds = None
         self.fd = None
-        self.channel = channel
-        self.choff = 2*(self.channel & 0x01)
-        self.fd = open(filename, 'rb')
-        self.mmbxds = mmap.mmap(self.fd.fileno(), 0, access=mmap.ACCESS_READ)
-        self.load_index(stream)
+        if filename is not None:
+            self.open(filename, channel, stream)
 
     def __del__(self):
+        self.close()
+
+    def close(self):
         if self.mmbxds:
             self.mmbxds.close()
+            self.mmbxds = None
         if self.fd:
             self.fd.close()
+            self.fd = None
 
-    def load_index(self, stream=None):
-        """ Load record index for bxds 
+    def open(self, filename, channel, stream=None, do_ct=False):
+        """ Open the bxds and load record index for bxds
         This ignores sequence numbers and assumes that there are no
         out-of-order radar records within a channel.
         In theory we could sort the records by sequence number.
+
+        filename: bxds filename
+        channel: one-based channel number
+        stream: (optional) hint for stream type
+
         """
+
+        assert channel >= 1
+        self.channel0 = channel - 1 # zero-based channel index
+        self.trace_byteoffset = 2 * (self.channel0 & 1)
+        self.filename = filename
+        self.fd = open(filename, 'rb')
+        self.mmbxds = mmap.mmap(self.fd.fileno(), 0, access=mmap.ACCESS_READ)
+
         self.index = []
-        choff = self.channel - self.channel & 1
-        for item in index_RADnhx_bxds_mmap(self.filename, stream=stream):
-            if item[2] == 0xff:
-                item[2] = 0x00
+        filesize = self.mmbxds.size()
+        # Channel offset that we are expecting to filter for.
+        choff = self.channel0 - self.channel0 & 1
+        # Length of a record's trace data in bytes per sample
+        bytes_per_samp = ((self.channel0 & 1) + 1) * 2
+
+        gen_bxds_idx = index_RADnhx_bxds_mmap(self.filename, stream=stream)
+        if do_ct:
+            ctgen = gen_ct(self.filename)
+        else:
+            ctgen = itertools.repeat(None)
+
+        for item, ct in zip(gen_bxds_idx, ctgen):
+            if item[2] == 0xff: # Replace choff if it is 0xff
+                item = (item[0], item[1], 0x00, item[3])
             if item[2] == choff:
-                self.index.append(item)
+                lastbyte = item[0] + item[1] + bytes_per_samp * item[3]
+                if lastbyte <= filesize:
+                    self.index.append((item, ct))
+
+    def size(self):
+        """ Return the number of traces for this channel """
+        return len(self.index)
 
     def __getitem__(self, idx):
         """ Return a trace.
         Example:
-        bxdsmm = BxdsMemmap(bxdsfile, channel=2)
-        # Get the 6th trace for channel 5
+        bxdsmm = RadBxds(bxdsfile, channel=2)
+        # Get the 6th trace for channel 2
         trace = bxdsmm[5]
          """
-        if idx > len(self.index):
+        if idx >= len(self.index) or idx < 0:
             return None
-        fpos, headerlen, rchoff, nsamp = self.index[idx]
+        fpos, headerlen, _, nsamp = self.index[idx][0]
         # offset in bytes for even vs odd channels
-        i0 = fpos + headerlen + self.choff * nsamp
-        trace1 = np.frombuffer(self.mmbxds, dtype="<i2", offset=i0, count=nsamp)
-        return trace1 #yield unfoc.Trace(self.channel, trace1, ctinfo)
+        i0 = fpos + headerlen + self.trace_byteoffset*nsamp
 
-def test_class(bxdsfile=None):
-    if bxdsfile is None:
-        bxdsfile = '/disk/kea/WAIS/orig/xlob/NIS4/IBH0e/X84b/RADnh5/bxds'
-    for channel in (0, 1, 2, 3):
-        print("Checking channel", channel)
-        rread = BxdsMemmap(bxdsfile, channel=channel, stream='RADnh5')
-        print(len(rread.index), " records")
-        for n, idx in enumerate(rread.index):
-            s = rread[n].shape
-            if n == 0:
-                print(s)
+        trace1 = np.frombuffer(self.mmbxds, dtype=">i2", offset=i0, count=nsamp)
+        return Trace(self.channel0+1, trace1, self.index[idx][1])
 
-def main():
-    # type: () -> None
-    parser = argparse.ArgumentParser(description='Library for reading a radar BXDS file')
-
-    parser.add_argument('-i', '--infile', required=True,
-                        help='filename of 2-byte radar file (bxds file)')
-
-    parser.add_argument('--debug', action='store_true',
-                        help='Print debugging messages')
-
-    parser.add_argument('--mmap', action='store_true',
-                        help='Use mmap method')
-
-    args = parser.parse_args()
-
-
-    LOGLEVEL = logging.DEBUG if args.debug else logging.INFO
-    logging.basicConfig(level=LOGLEVEL, stream=sys.stdout,
-                    format='unfoc: [%(levelname)-5s] %(message)s',
-                   )
-
-    t0 = time.time()
-    records1 = []
-    size1 = os.path.getsize(args.infile)
-
-    if args.mmap:
-        genfunc = index_RADnhx_bxds_mmap
-    else:
-        genfunc = index_RADnhx_bxds
-
-    for ii, data in enumerate(genfunc(args.infile)):
-        pass
-
-    logging.info("%d records", ii+1)
-    test_class(args.infile)
-
-    elapsed_time = time.time() - t0
-    logging.info("Elapsed time: %0.1f sec", elapsed_time)
-
-    speed = size1 / elapsed_time / 1024 / 1024.
-    logging.info("%0.3f MB/s", speed)
-
-
-
-
-if __name__ == "__main__":
-    sys.exit(main())
