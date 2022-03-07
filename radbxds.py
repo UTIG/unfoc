@@ -53,6 +53,7 @@ class Trace:
 def get_radar_stream(filename):
     # type: (str) -> str
     # both RADnh3 and RADnh5 are the same first elements in header format
+    # TODO: add support for detecting RADjh1
     fmtstr = '>HBBBBBB'
     fmtlen = struct.calcsize(fmtstr)
     with open(filename, 'rb') as fd:
@@ -247,12 +248,15 @@ def read_RADnhx_gen(bxds_filename, channel, stream=None):
 class RadBxds:
     """ Reader for random access to traces in a RADnh3 or RADnh5 bxds as numpy arrays
     Future: add support for also auto-detecting RADjh1 bxds
+    alternative name ideas:
+    
     """
     def __init__(self, filename=None, channel=None, stream=None, ct=False):
         """ Initialize the reader to access one channel's records """
-        self.index = []
-        self.mmbxds = None
-        self.fd = None
+        self.index_ = []
+        self.mmbxds_ = None
+        self.fd_ = None
+        self.cts_ = None
         if filename is not None:
             self.open(filename, channel, stream)
 
@@ -260,12 +264,14 @@ class RadBxds:
         self.close()
 
     def close(self):
-        if self.mmbxds:
-            self.mmbxds.close()
-            self.mmbxds = None
-        if self.fd:
-            self.fd.close()
-            self.fd = None
+        if self.mmbxds_ is not None:
+            self.mmbxds_.close()
+            self.mmbxds_ = None
+        if self.fd_ is not None:
+            self.fd_.close()
+            self.fd_ = None
+        self.cts_ = None
+
 
     def open(self, filename, channel, stream=None, do_ct=False):
         """ Open the bxds and load record index for bxds
@@ -280,50 +286,128 @@ class RadBxds:
         """
 
         assert channel >= 1
-        self.channel0 = channel - 1 # zero-based channel index
-        self.trace_byteoffset = 2 * (self.channel0 & 1)
-        self.filename = filename
-        self.fd = open(filename, 'rb')
-        self.mmbxds = mmap.mmap(self.fd.fileno(), 0, access=mmap.ACCESS_READ)
+        self.channel0_ = channel - 1 # zero-based channel index
+        self.trace_byteoffset_ = 2 * (self.channel0_ & 1)
+        self.fd_ = open(filename, 'rb')
+        self.mmbxds_ = mmap.mmap(self.fd_.fileno(), 0, access=mmap.ACCESS_READ)
 
-        self.index = []
-        filesize = self.mmbxds.size()
+        self.index_ = []
+        filesize = self.mmbxds_.size()
         # Channel offset that we are expecting to filter for.
-        choff = self.channel0 - self.channel0 & 1
+        choff = self.channel0_ - self.channel0_ & 1
         # Length of a record's trace data in bytes per sample
-        bytes_per_samp = ((self.channel0 & 1) + 1) * 2
+        bytes_per_samp = ((self.channel0_ & 1) + 1) * 2
 
-        gen_bxds_idx = index_RADnhx_bxds_mmap(self.filename, stream=stream)
-        if do_ct:
-            ctgen = gen_ct(self.filename)
-        else:
-            ctgen = itertools.repeat(None)
-
-        for item, ct in zip(gen_bxds_idx, ctgen):
+        for ii, item in enumerate(index_RADnhx_bxds_mmap(filename, stream=stream)):
             if item[2] == 0xff: # Replace choff if it is 0xff
                 item = (item[0], item[1], 0x00, item[3])
             if item[2] == choff:
                 lastbyte = item[0] + item[1] + bytes_per_samp * item[3]
                 if lastbyte <= filesize:
-                    self.index.append((item, ct))
+                    self.index_.append(item + (ii,))
 
     def size(self):
         """ Return the number of traces for this channel """
-        return len(self.index)
+        return len(self.index_)
+
+    def __len__(self):
+        """ Return the number of traces for this channel """
+        return len(self.index_)
 
     def __getitem__(self, idx):
-        """ Return a trace.
+        """ Return data for selected radar records as an ndarray.
+
+        Records to return can be selected using slice notation
         Example:
         bxdsmm = RadBxds(bxdsfile, channel=2)
         # Get the 6th trace for channel 2
         trace = bxdsmm[5]
-         """
-        if idx >= len(self.index) or idx < 0:
-            return None
-        fpos, headerlen, _, nsamp = self.index[idx][0]
-        # offset in bytes for even vs odd channels
-        i0 = fpos + headerlen + self.trace_byteoffset*nsamp
+        # Return a 5 x 3200 array for channel 2.
+        traces = bxdsmm[5:10]
+        """
 
-        trace1 = np.frombuffer(self.mmbxds, dtype=">i2", offset=i0, count=nsamp)
-        return Trace(self.channel0+1, trace1, self.index[idx][1])
+        if isinstance(idx, slice):
+            indices = idx.indices(len(self.index_))
+            ntraces = len(range(*indices))
+            data = np.empty((ntraces, self.index_[0][3]), dtype=">i2")
+
+            for ii, idxinfo in enumerate(self.index_[idx]):
+                fpos, headerlen, _, nsamp, _ = idxinfo
+                i0 = fpos + headerlen + self.trace_byteoffset_ * nsamp
+                data[ii, :] = np.frombuffer(self.mmbxds_, dtype=">i2", offset=i0, count=nsamp)
+
+        else: # assume it is an individual index.  Return a singleton dimension.
+            fpos, headerlen, _, nsamp, _ = self.index_[idx]
+            i0 = fpos + headerlen + self.trace_byteoffset_ * nsamp
+            data = np.frombuffer(self.mmbxds_, dtype=">i2", offset=i0, count=nsamp)
+
+        return data
+
+
+    def ct(self, idx):
+        """ Return a one or more ct values.  Supports slicing.
+        # Get the fourth ct seq/tim value
+        one_ct = self.ct(3)
+        # Get the fourth and fifth seq/tim values as a list
+        two_cts = self.ct(3:5)
+        """
+        if self.cts_ is None: # Lazily load CTs
+
+            all_cts = tuple(gen_ct(self.fd_.name))
+            self.cts_ = [all_cts[idx[4]] for idx in self.index_]
+        return self.cts_[idx]
+
+class RADjh1Bxds:
+    """ Reader for RADjh1 bxds.
+    """
+
+    def __init__(self, filename=None, channel=None, stream=None, ct=False):
+        """ Initialize the reader to access one channel's records """
+        self.mmbxds = None
+        self.close()
+        if filename is not None:
+            self.open(filename, channel, stream)
+    def __del__(self):
+        self.close()
+
+    def close(self):
+        self.list_ct = None
+        self.mmbxds = None
+        self.ntraces = None
+        self.channel = None
+
+    def open(self, filename, channel, stream=None, do_ct=False):
+        """ Open the bxds and load record index for bxds
+        filename: bxds filename for low gain channel
+        channel: one-based channel number
+        stream: (optional) hint for stream type
+
+        """
+
+        assert channel == 1 or channel == 2
+        assert os.path.basename(filename) == ('bxds%d' % channel)
+
+        self.channel = channel
+
+        filesize = os.path.getsize(filename)
+        self.ntraces = filesize // (3200*2) # 3200 samples * 2 bytes per sample
+
+        self.mmbxds = np.memmap(filename, dtype='>i2', mode='r', shape=(self.ntraces, 3200))
+
+        self.list_ct = list(gen_ct(filename)) if do_ct else None
+
+    def size(self):
+        """ Return the number of traces for this channel """
+        return self.__len__()
+
+    def __len__(self):
+        return self.ntraces
+
+    def __getitem__(self, idx):
+        """ Return a trace.  In theory you should probably just access the memmap directly.
+         """
+        if 0 <= idx < self.ntraces:
+            ct = self.list_ct[idx] if self.list_ct else None
+            return Trace(self.channel, self.mmbxds[idx, :], ct)
+        return None
 

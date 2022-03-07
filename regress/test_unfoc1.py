@@ -23,6 +23,9 @@ import os
 import logging
 import tempfile
 
+from test_radbxds import read_testlist
+
+
 cwd = os.path.dirname(__file__)
 p = os.path.abspath(os.path.join(cwd, ".."))
 sys.path.insert(1, p)
@@ -30,27 +33,11 @@ sys.path.insert(1, p)
 import unfoc
 import unfocb
 
+
 #TESTLIST = os.path.join(cwd, 'test_lists/available_radnh_bxds.txt')
 TESTLIST = os.path.join(cwd, 'test_lists/tests_level0.txt')
 OUTPUTDIR = os.path.abspath(os.path.join(cwd, 'covdata'))
 DELETE_OUTPUT = True
-
-
-def read_testlist(testlist):
-    with open(testlist, 'rt') as fin:
-        for line in fin:
-            filename = line.strip()
-            if not filename or filename[0] == '#': # skip commented lines
-                continue
-            yield parse_fileinfo(filename)
-
-def parse_fileinfo(filename):
-    # line = /disk/kea/WAIS/orig/xlob/WSB/JKB2e/MAWG01c/RADnh3/bxds
-    parts = filename.split('/')
-    snm = parts[-2]
-    pst = '/'.join(parts[-5:-2])
-    return pst, snm, filename
-
 
 class UnfocBase(unittest.TestCase):
     def check_inputs_exist(self, bxds_input):

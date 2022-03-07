@@ -111,7 +111,7 @@ def stack_coherent_chunk(coherent_chunk_gen, ct_type='mid', dtype=np.float64):
     and return a Trace object, the number of records,
     and metadata from  the input traces
 
-    ct_type can be any of 'first', 'mid', 'last' or 'all'
+    ct_type can be any of 'mid' or 'all'
 
     """
     stacked = None
@@ -123,13 +123,10 @@ def stack_coherent_chunk(coherent_chunk_gen, ct_type='mid', dtype=np.float64):
         else:
             stacked += rec.data
 
-    if ct_type == 'first':
-        ctv = [ctinfos[0],]
-    elif ct_type == 'mid':
+    if ct_type == 'mid':
         ctv = [ctinfos[len(ctinfos) // 2],]
-    elif ct_type == 'last':
-        ctv = [ctinfos[-1],]
     else:
+        assert ct_type == 'all'
         ctv = ctinfos
 
     stacked /= (nrecs+1)

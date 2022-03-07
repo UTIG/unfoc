@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import logging
 import collections
 try:
     import typing
@@ -62,7 +63,7 @@ def parse_channels(chanstr):
     try:
         # Assume it's a simple integer
         chan = int(chanstr)
-        print("WARNING: specifying a channel as a simple integer is deprecated.")
+        logging.warning("Specifying a unfoc channel as a simple integer is deprecated")
         return [PIK1ChannelSpec._make([chan, chan, 1, 0, 0])];
     except ValueError as e:
         # If not, that's ok.
@@ -83,34 +84,3 @@ def parse_channels(chanstr):
         cfgdata = [int(cols[0]), int(cols[1]), float(cols[2]), int(cols[3]), float(cols[4])]
         list_config.append(PIK1ChannelSpec._make(cfgdata))
     return list_config
-
-
-# Test
-def main():
-    # type: () -> int
-    print(parse_channels("1"))
-
-    # This should fail
-    try:
-        parse_channels("1.2")
-        exit(1) # pragma: no cover
-    except ValueError as e:
-        pass
-
-    print(parse_channels("[1,2,3,4,5;6,7,8.0,9,10]"))
-    print(parse_channels("[1,2,3,4,5]"))
-
-    tests = "[1,1,1,3,1] [2,2,1,4,1] [5,1,1,0,0;7,3,1,0,0] [6,2,1,0,0;8,4,1,0,0]".split(" ") \
-          + '1 2 3 4 5 6 7 8'.split()
-
-    for s in tests:
-        x = parse_channels(s)
-        print("s: {:s}\n{:s}".format(s, str(x)))
-
-    get_utig_channels('LoResInco1,LoResInco2,LoResInco3')
-
-    return 0
-
-
-if __name__ == "__main__":
-    main()
