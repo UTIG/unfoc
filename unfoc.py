@@ -37,6 +37,7 @@ enable_meta_index=True
 
 from radbxds import Trace, get_radar_stream, gen_ct
 
+
 class IncoherentTrace:
     """
     Pairs channel and magnitude/phase data for an incoherent trace
@@ -364,33 +365,6 @@ def inco_stacks_gen(traces, # type: Generator[Trace, None, None]
             if stack is not None:
                 yield stack
 
-"""
-def get_radar_stream(filename):
-    # type: (str) -> str
-    # both RADnh3 and RADnh5 are the same first elements in header format
-    fmtstr = '>HBBBBBB'
-    fmtlen = struct.calcsize(fmtstr)
-    with open(filename, 'rb') as fd:
-        # read header
-        buff = fd.read(fmtlen)
-        if len(buff) < fmtlen:
-            raise IOError("Unable to read %d bytes from %s."
-                            % (fmtlen, filename))
-
-        # TODO: This check should only  happen once, not every read!!
-        # Check it then set a flag and move the file pointer back to the start!
-        # Check the version byte and see if it is RADnh3 or RADnh5
-        try:
-            v = ord(buff[6]) # python 2
-        except TypeError:
-            v = int(buff[6]) # python 3
-        if v == 5:
-            return "RADnh5"
-        elif v == 0 or v == 255:
-            return "RADnh3"
-        else:
-            raise ValueError("Can't determine stream for file %s" % filename)
-"""
 
 def get_radar_type(bxdsfile, nrecords=1000):
     """ Inspect a raw datafile and detect what type of radar it came from
@@ -415,27 +389,6 @@ def get_radar_type(bxdsfile, nrecords=1000):
     else:
         assert len(choffs) == 2
         return 'HiCARS2'
-
-CT_t = namedtuple('CT', 'seq tim')
-def gen_ct(bxdsfile):
-    """ Generate ct data from the ct file associated with bxdsfile
-    We only return relevant information. We actually only want the seq and ct tim.
-
-    """
-    datadir = os.path.dirname(bxdsfile)
-    ctfile1 = os.path.join(datadir, 'ct')
-    ctfile2 = os.path.join(datadir, 'ct.gz')
-    if os.path.exists(ctfile1):
-        fh = open(ctfile1, 'rt')
-    elif os.path.exists(ctfile2):
-        fh = gzip.open(ctfile2, 'rt')
-    else: #pragma: no cover
-        return
-    for line in fh:
-        fields = line.rstrip().split()
-        # e.g., THW PBA0a X66a 9644392 2020 02 02 03 22 59 70 2762000089
-        # yield ct, seq
-        yield CT_t(int(fields[3]), int(fields[11]))
 
 
 # Read individual traces out of RADnh3 or RADnh5 file

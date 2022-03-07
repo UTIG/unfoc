@@ -55,15 +55,6 @@ class UnfocBase(unittest.TestCase):
             magfile = os.path.join(basepath, 'Mag' + channel)
             self.assertTrue(os.path.exists(magfile))
             self.assertGreater(os.path.getsize(magfile), 0)
-
-
-def is_bandpass(pst, snm):
-    # this isn't exactly right but it's sometimes right.
-    # and it'll at least let us try some different combinations
-    is_bandpass = (snm == 'RADnh5')
-    return is_bandpass
-
-class TestUnfoc(UnfocBase):
     def run_unfoc(self, unfoc_params, testlist, outprefix):
         channels_hc = 'LoResInco1,LoResInco2'
         channels_marfa = 'LoResInco1,LoResInco2,LoResInco5,LoResInco6,LoResInco7,LoResInco8'
@@ -88,6 +79,15 @@ class TestUnfoc(UnfocBase):
                 shutil.rmtree(tempdir)
         return tempdir
 
+
+def is_bandpass(pst, snm):
+    # this isn't exactly right but it's sometimes right.
+    # and it'll at least let us try some different combinations
+    is_bandpass = (snm == 'RADnh5')
+    return is_bandpass
+
+class TestUnfoc(UnfocBase):
+
     def test1(self):
         testlist = os.path.join(cwd, 'test_lists/tests_level0.txt')
         outprefix = os.path.join(OUTPUTDIR, 'unfoc_test1_')
@@ -102,6 +102,7 @@ class TestUnfoc(UnfocBase):
         }
         return self.run_unfoc(unfoc_params, testlist, outprefix)
 
+    # TODO: test that single threaded comes out the same as multithreaded
     def test_multi(self):
         testlist = os.path.join(cwd, 'test_lists/tests_level0.txt')
         outprefix = os.path.join(OUTPUTDIR, 'unfoc_test1_')

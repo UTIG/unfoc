@@ -5,6 +5,8 @@
 
 """
 Perform unfocused processing on a radar file
+
+# TODO: make IncoherentTrace and Trace namedtuples instead of classes.
 """
 
 import argparse
@@ -22,11 +24,13 @@ import numpy as np
 
 import unfoc as unfoc_mod
 import radbxds
+from radbxds import Trace
+#Trace = namedtuple('Trace', 'data ct')
 
 
 def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
           blanking, bandpass, scale=20000, output_phases=False, nmax=0, processes=1):
-    """ Generate one output channel of unfoc data and write it to the
+    """ Generate all requested output channels of unfoc data and write it to the
     specified output directory with the standard file naming. """
 
     # pass through if this is a legacy ChannelSpec object
@@ -54,6 +58,19 @@ def unfoc_chan_(args):
 def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
           blanking, bandpass, scale=20000, output_phases=False, nmax=0):
 
+    """ Generate one output channel of unfoc data
+    outdir: output directory where data will be placed
+    infile: input bxds file
+    p1cs: channel specification for this output file
+    output_samples: number of output samples to place into the output file
+    stackdepth: coherent stacking depth
+    incodepth: incoherent stacking depth
+    blanking: samples to blank
+    scale: output magnitude scaling factor
+    output_phases: if true, also output phase data
+    nmax: max number of output samples to prcess, then quit (usually for testing).
+    """
+
     # Obtain reference chirp
     ref_chirp = unfoc_mod.get_ref_chirp(bandpass, output_samples)
 
@@ -78,12 +95,13 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
 
     # incoherently stack
     inco_chunker = chunks(denoise_gen, size=incodepth, incomplete=False)
-    igen1 = map(stack_inco_chunk, inco_chunker, itertools.repeat(p1cs.chanout))
+    f_stack_inco_chunk = lambda stack: stack_inco_chunk(stack, p1cs.chanout, output_phases=output_phases)
+    igen1 = map(f_stack_inco_chunk, inco_chunker)
 
 
     os.makedirs(outdir, exist_ok=True)
     p1out = unfoc_mod.PIK1OutputFile(outdir, channel=p1cs.chanout,
-                                     MagScale=20000, StackDepth=stackdepth, IncoDepth=incodepth)
+                                     MagScale=scale, StackDepth=stackdepth, IncoDepth=incodepth)
 
     p1out.open(infile, do_phase=output_phases, do_index=True)
     for ii, istack in enumerate(igen1):
@@ -123,17 +141,18 @@ def stack_coherent_chunk(coherent_chunk_gen, ct_type='mid', dtype=np.float64):
         else:
             stacked += rec.data
 
+    stackdepth = len(ctinfos)
     if ct_type == 'mid':
-        ctv = [ctinfos[len(ctinfos) // 2],]
+        ctv = [ctinfos[stackdepth // 2],]
     else:
         assert ct_type == 'all'
         ctv = ctinfos
 
-    stacked /= (nrecs+1)
-    return stacked, nrecs+1, ctv
+    stacked /= stackdepth
+    return stacked, stackdepth, ctv
 
 
-def stack_inco_chunk(inco_chunk_gen, channel, dtype=None):
+def stack_inco_chunk(inco_chunk_gen, channel, dtype=None, output_phases=False):
     """ Incoherently stack.
     Calculate magnitude and track phase.
     Return a summed magnitude trace,
@@ -157,19 +176,19 @@ def stack_inco_chunk(inco_chunk_gen, channel, dtype=None):
     ntraces = len(traces)
     magnitude /= ntraces
     ct = list_cts[ntraces//2]
-    # convert to cdouble to match older version
-    phs = np.angle(traces[ntraces//2].astype(np.cdouble))
+    if output_phases:
+        # convert to cdouble to match older version
+        phs = np.angle(traces[ntraces//2].astype(np.cdouble))
+    else:
+        phs = None
 
     itrace = unfoc_mod.IncoherentTrace(channel=channel, magnitude=magnitude, phase=phs, ct=ct)
     return itrace
 
-def sum_traces(traces, dtype=np.int32, channel=-1):
-    """
-    TODO: make this part of the trace class?
-    """
-    data = traces[0].data.astype(np.int32, copy=False) + \
-           traces[1].data.astype(np.int32, copy=False)
-    return unfoc_mod.Trace(channel=channel, data=data, ct=traces[0].ct)
+def sum_traces(trace1, trace2, dtype=np.int32):
+    data = trace1.data.astype(np.int32, copy=False) + \
+           trace2.data.astype(np.int32, copy=False)
+    return Trace(channel=-1, data=data, ct=trace1.ct)
 
 
 def denoise_and_dechirp(coherent_data, *args, **kwargs):
@@ -179,13 +198,7 @@ def denoise_and_dechirp(coherent_data, *args, **kwargs):
     output_samples = kwargs['output_samples']
     dechirped = unfoc_mod.denoise_and_dechirp(stacked[0:output_samples].astype(np.double), *args, **kwargs)
 
-    # Should we use the first one?
-    #return unfoc_mod.Trace(stacked.channel, dechirped, ctinfos[0])
     return dechirped, nrecs, ctinfos
-    #return unfoc_mod.Trace(stacked.channel, dechirped, stacked.ct)
-
-    # trace, nrecs+1, ctinfos
-    #return data
 
 
 def setup_bxds_reader(bxdsfile, channel_specs):
@@ -205,15 +218,11 @@ def setup_bxds_reader(bxdsfile, channel_specs):
         # Read traces from another channel of a bxds file
         channel_gen2 = radbxds.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan1in)
         # Combine two channels into one, and rewrite the output channel number
-        f_sum_traces = lambda traces: sum_traces(traces, choff=channel_specs.chanout)
-        reader_gen = map(sum_traces, zip(channel_gen1, channel_gen2))
+        reader_gen = map(sum_traces, channel_gen1, channel_gen2)
     else:
         # If we're only doing one channel, it better be chan0
         assert channel_specs.scalef0 == 1
-        channel_gen1 = radbxds.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan0in)
-        # Rewrite the channel number
-        f_traceout = lambda trace: unfoc_mod.Trace(channel=channel_specs.chanout, data=trace.data, ct=trace.ct)
-        reader_gen = map(f_traceout, channel_gen1)
+        reader_gen = radbxds.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan0in)
 
     return reader_gen
 
