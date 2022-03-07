@@ -251,7 +251,7 @@ class RadBxds:
     alternative name ideas:
     
     """
-    def __init__(self, filename=None, channel=None, stream=None, ct=False):
+    def __init__(self, filename=None, channel=None, stream=None):
         """ Initialize the reader to access one channel's records """
         self.index_ = []
         self.mmbxds_ = None
@@ -361,22 +361,22 @@ class RADjh1Bxds:
     """ Reader for RADjh1 bxds.
     """
 
-    def __init__(self, filename=None, channel=None, stream=None, ct=False):
+    def __init__(self, filename=None, channel=None, stream=None):
         """ Initialize the reader to access one channel's records """
-        self.mmbxds = None
         self.close()
         if filename is not None:
             self.open(filename, channel, stream)
+
     def __del__(self):
         self.close()
 
     def close(self):
-        self.list_ct = None
-        self.mmbxds = None
-        self.ntraces = None
-        self.channel = None
+        self.cts_ = None
+        self.mmbxds_ = None
+        self.filename = None
+        self.channel_ = None
 
-    def open(self, filename, channel, stream=None, do_ct=False):
+    def open(self, filename, channel, stream=None):
         """ Open the bxds and load record index for bxds
         filename: bxds filename for low gain channel
         channel: one-based channel number
@@ -387,27 +387,34 @@ class RADjh1Bxds:
         assert channel == 1 or channel == 2
         assert os.path.basename(filename) == ('bxds%d' % channel)
 
-        self.channel = channel
+        self.channel_ = channel
+        self.filename_ = filename
 
         filesize = os.path.getsize(filename)
-        self.ntraces = filesize // (3200*2) # 3200 samples * 2 bytes per sample
+        ntraces = filesize // (3200*2) # 3200 samples * 2 bytes per sample
 
-        self.mmbxds = np.memmap(filename, dtype='>i2', mode='r', shape=(self.ntraces, 3200))
-
-        self.list_ct = list(gen_ct(filename)) if do_ct else None
+        self.mmbxds_ = np.memmap(filename, dtype='>i2', mode='r', shape=(ntraces, 3200))
 
     def size(self):
-        """ Return the number of traces for this channel """
         return self.__len__()
 
     def __len__(self):
-        return self.ntraces
+        """ Return the number of traces for this channel """
+        return self.mmbxds_.shape[0]
 
     def __getitem__(self, idx):
-        """ Return a trace.  In theory you should probably just access the memmap directly.
-         """
-        if 0 <= idx < self.ntraces:
-            ct = self.list_ct[idx] if self.list_ct else None
-            return Trace(self.channel, self.mmbxds[idx, :], ct)
-        return None
+        """ View to the underlying memory map  """
+        return self.mmbxds_[idx]
+
+    def ct(self, idx):
+        """ Return a one or more ct values.  Supports slicing.
+        # Get the fourth ct seq/tim value
+        one_ct = self.ct(3)
+        # Get the fourth and fifth seq/tim values as a list
+        two_cts = self.ct(3:5)
+        """
+        if self.cts_ is None: # Lazily load CTs
+            self.cts_ = tuple(gen_ct(self.filename_))
+
+        return self.cts_[idx]
 

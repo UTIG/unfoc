@@ -182,23 +182,14 @@ class TestClass1(RadBxdsBase):
         for ii in range(len(self.rread)):
             ct1 = self.rread.ct(ii)
             self.assertEqual(len(ct1), 2)
-        self.assertGreaterEqual(len(self.rread.cts_), len(self.rread.index_))
+        self.assertGreaterEqual(len(self.rread.cts_), len(self.rread))
 
-class TestRADjh1Class(unittest.TestCase):
-
-    def test_radjh1_bxds(self):
+class TestRADjh1Class(TestClass1):
+    def setUp(self):
+        channel = 1
         testlist1 = os.path.join(cwd, 'test_lists/tests_radjh1.txt')
-        for pst, snm, bxds_input in list(read_testlist(testlist1)):
-            for channel in (1, 2):
-                bxds_input1 = os.path.join(os.path.dirname(bxds_input), 'bxds%d' % channel)
-                with self.subTest(pst=pst, snm=snm, channel=channel):
-                    rread = radbxds.RADjh1Bxds(bxds_input1, channel=channel)
-                    self.assertGreater(rread.size(), 1) # number of records
-
-                    for n in range(rread.size()):
-                        s = rread[n].data.shape[0]
-                        self.assertTrue(s == 3200)
-                    self.assertIsNone(rread[-1])    
+        pst, snm, bxds_input = list(read_testlist(testlist1))[0]
+        self.rread = radbxds.RADjh1Bxds(bxds_input, channel=channel)
 
 class TestRadBxds(RadBxdsBase):
     """ Run tests on many different bxdses """
