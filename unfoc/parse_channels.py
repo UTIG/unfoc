@@ -1,5 +1,28 @@
 #!/usr/bin/env python3
 
+"""
+Module for parsing channel specifications.
+
+This is a bit of a relic from the older version of pik1, and a lot of the
+functionality doesn't make sense any more.
+
+Its purpose is to map from input data product types to named output channels
+to an internal object that the unfocused processor uses to control processing.
+
+Roadmap for improvement plans:
+- rename to channels.py
+- Remove support for parsing integer channels
+- Remove support for linear combinations; just sums?
+- Simplify parameters (since scale factor isn't actually supported in current version)
+- Ensure that multipol is supported
+
+Basically, the members and meaning of PIK1ChannelSpec are internal and subject to change.
+
+Of course it ain't broken so why fix it?
+
+"""
+
+
 import logging
 import collections
 try:

@@ -38,7 +38,7 @@ run_unfoc.py -i $WAIS/orig/xlob/ICP3/JKB2d/F56T01c/RADnh3/bxds -o /tmp/outdir \
 
 This same functionality can be called natively from python in largely the same way.
 
-```
+```python
 from unfoc.filter import unfoc
 
 channels = 'LoResInco1,LoResInco2'
@@ -53,12 +53,13 @@ unfoc(infile=infile, outdir='/tmp/outdir', stackdepth=10, incodepth=5,
 The `unfoc.read` module provides several ways to read raw radar data from
 the `RADnh3` and `RADnh5` data streams.  
 
-In bxds files, data channels are numbered starting at 1.
+The parameter for selecting data channels from the bxds file uses the convention
+that the first data channel is numbered starting at 1.
 
 The simplest method is by use of a `RadBxds` object, which allows
 you to slice blocks of radar traces and return them as numpy arrays.
 
-```
+```python
 from unfoc.read import RadBxds
 
 bxds_input = '/disk/kea/WAIS/orig/xlob/ICP3/JKB2d/F56T01c/RADnh3/bxds'

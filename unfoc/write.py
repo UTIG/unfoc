@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 
-""" 
+"""
 Handler for writing unfoc output files
+
+The primary class in this module, PIK1Output, handles writing the
+collection of unfocused data products to a specified directory in
+the format and organization expected for PIK1 on the UTIG hierarchy.
 
 """
 
@@ -19,16 +23,15 @@ try:
 except ImportError: #pragma: no cover
     pass  # Not installed on melt ...
 
-from unfoc.parse_channels import PIK1ChannelSpec
-
 from unfoc.read import Trace, get_radar_stream, gen_ct
 
 # Pairs channel and magnitude/phase data for an incoherent trace
 # type: (int, np.ndarray, np.ndarray, List[tuple]) -> None
+# Channel is now superfluous but NBD.
 IncoherentTrace = namedtuple('IncoherentTrace', 'channel magnitude phase ct')
 
 
-class PIK1Output(object):
+class PIK1Output:
     """
     Outputs magnitude and phase information for NDArray that comes through.
     Optionally computes the mean before writing
@@ -36,7 +39,7 @@ class PIK1Output(object):
     processing stream.
     TODO: make names PEP8 compliant
     TODO: use os.path.join
-    
+    TODO: open/close context manager
     """
     def __init__(self, outdir, channel, MagScale, StackDepth, IncoDepth):
         # type: (str, int, int, int, int) -> None

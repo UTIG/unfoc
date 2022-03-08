@@ -2,10 +2,39 @@
 
 
 """
-radbxds.py
+read.py
 
-Read a radar bxds file and return traces
-Read the structure of a radar file
+This module provides functions and objects for reading UTIG
+radar data formats into numpy.
+
+Possible input data formats include RADnh3/RADnh5 breakout data (e.g., HiCARS2, MARFA),
+as well as HiCARS1 (RADjh1).
+
+For RADnh3/RADnh5, we assume that the standard breakout procedure has been run
+on the ELSA data files to produce our standard bxds and ct files.
+
+NB: In theory we could write a parser to directly parse ELSA data files and provide
+the same data ingest capability.
+
+For RADjh1 data, we assume that the standard breakout procedure has been run on
+the HiCARS1 data files and that the standard bxds1, bxds2, and ct files are available
+in one directory.
+
+
+The easiest way to read raw radar data is to use the RadBxds and RADjh1Bxds classes.
+
+The most memory-efficient way to read RADnh3/RADnh5 data is to use the read_RADnhx_gen
+generator.  This omits the step of pre-walking the data file to find radar records.
+
+If you don't want to read all the radar data, you can use the index_RADnhx_gen function
+to get an index of radar records present.
+
+Right now, the RADjh1 and RADnh3/RADnh5 functions are a bit disjointed but in the
+future you can expect them to be a little more unified and for the module to detect
+the format of the data from the binary contents of the file.
+
+
+
 """
 
 from collections import namedtuple
@@ -107,7 +136,7 @@ def get_radar_type(bxdsfile, nrecords=1000, stream=None):
     radar.
     """
     choffs = {}
-    gen = index_RADnhx_bxds_mmap(bxdsfile, stream=stream)
+    gen = index_RADnhx_bxds_mmap_(bxdsfile, stream=stream)
     # fpos, headerlen, header.choff, header.nsamp
     for ii, (_, _, choff, _) in enumerate(gen):
         choffs[choff] = choffs.get(choff, 0) + 1
@@ -180,7 +209,7 @@ def index_RADnhx_bxds(input_filename, stream=None):
 # Read individual traces out of RADnh3 or RADnh5 file
 # TODO: This doesn't yet filter on channels, which should be OK - the
 # downstream users ALSO check channel.
-def index_RADnhx_bxds_mmap(input_filename, stream=None):
+def index_RADnhx_bxds_mmap_(input_filename, stream=None):
     # type: (str) -> Generator[tuple]
     """ Read the positions of packets within a RADnh3 and RADnh5 bxds file
     and return these as a generator
@@ -381,7 +410,9 @@ class RadBxds:
         return self.cts_[idx]
 
 class RADjh1Bxds:
-    """ Reader for RADjh1 bxds.
+    """ Reader for RADjh1 bxds.  This is really just a thin wrapper
+    around the numpy.memmap interface for parallelism with RadBxds.
+    You might be better off just using np.memmap.
     """
 
     def __init__(self, filename=None, channel=None, stream=None):

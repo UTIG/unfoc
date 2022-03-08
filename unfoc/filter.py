@@ -6,7 +6,6 @@ filtering operations for unfocused processing
 
 Perform unfocused processing on a radar file
 
-# TODO: make IncoherentTrace and Trace namedtuples instead of classes.
 """
 
 import argparse
@@ -31,7 +30,18 @@ import unfoc.read as read
 def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
           blanking, bandpass, scale=20000, output_phases=False, nmax=0, processes=1):
     """ Generate all requested output channels of unfoc data and write it to the
-    specified output directory with the standard file naming. """
+    specified output directory with the standard file naming.
+
+    The channels parameter is a string containing a comma-separated list
+    of output channel specifications.  See parse_channels.get_utig_channels for
+    definitions.
+
+    The processes parameter specifies how many channels are processed in parallel.
+
+    See unfoc_chan for other details on other input parameters.
+
+    return value: None
+    """
 
     # pass through if this is a legacy ChannelSpec object
     if isinstance(channels, str):
@@ -61,7 +71,7 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
     """ Generate one output channel of unfoc data
     outdir: output directory where data will be placed
     infile: input bxds file
-    p1cs: channel specification for this output file
+    p1cs: channel specification for this output file (PIK1ChannelSpec object)
     output_samples: number of output samples to place into the output file
     stackdepth: coherent stacking depth
     incodepth: incoherent stacking depth
@@ -69,7 +79,12 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
     scale: output magnitude scaling factor
     output_phases: if true, also output phase data
     nmax: max number of output samples to prcess, then quit (usually for testing).
+
+
+    
+
     """
+
 
     # Obtain reference chirp
     ref_chirp = dechirp.get_ref_chirp(bandpass, output_samples)
@@ -80,6 +95,7 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
     # Filter Chirp
     ref_chirp *= hfilter
 
+    # Setup bxds file reader to get the correct files.
     sumchannel_gen = setup_bxds_reader(infile, p1cs)
 
     # Stack traces coherently
@@ -101,7 +117,7 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
 
     os.makedirs(outdir, exist_ok=True)
     p1out = PIK1Output(outdir, channel=p1cs.chanout,
-                                 MagScale=scale, StackDepth=stackdepth, IncoDepth=incodepth)
+                       MagScale=scale, StackDepth=stackdepth, IncoDepth=incodepth)
 
     p1out.open(infile, do_phase=output_phases, do_index=True)
     for ii, istack in enumerate(igen1):
@@ -185,12 +201,6 @@ def stack_inco_chunk(inco_chunk_gen, channel, dtype=None, output_phases=False):
     itrace = IncoherentTrace(channel=channel, magnitude=magnitude, phase=phs, ct=ct)
     return itrace
 
-def sum_traces(trace1, trace2, dtype=np.int32):
-    data = trace1.data.astype(np.int32, copy=False) + \
-           trace2.data.astype(np.int32, copy=False)
-    return read.Trace(channel=-1, data=data, ct=trace1.ct)
-
-
 def denoise_and_dechirp(coherent_data, *args, **kwargs):
     """ Assumes that the input coherent_data has the same output parameter
     structure as stack_coherent_chunk """
@@ -205,6 +215,9 @@ def setup_bxds_reader(bxdsfile, channel_specs):
     """
     Set up the generators for reading from a bxds file and producing
     pairwise-summed traces or individual unsummed traces
+    TODO: update PIK1ChannelSpec to have less redundant parameters since we
+    make these assertions here.
+
     """
     # PIK1ChannelSpec(chanout=1, chan0in=1, scalef0=1, chan1in=3, scalef1=1)
     assert channel_specs.scalef0 == 0 or channel_specs.scalef0 == 1
@@ -225,4 +238,10 @@ def setup_bxds_reader(bxdsfile, channel_specs):
         reader_gen = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan0in)
 
     return reader_gen
+
+def sum_traces(trace1, trace2, dtype=np.int32):
+    data = trace1.data.astype(np.int32, copy=False) + \
+           trace2.data.astype(np.int32, copy=False)
+    return read.Trace(channel=-1, data=data, ct=trace1.ct)
+
 
