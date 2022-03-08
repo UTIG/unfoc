@@ -160,7 +160,7 @@ class TestUnfoc(UnfocBase):
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+    logging.basicConfig(level=logging.WARNING, stream=sys.stdout)
     unittest.main()
 
 

@@ -115,15 +115,14 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
 
 
     os.makedirs(outdir, exist_ok=True)
-    p1out = PIK1Output(outdir, channel=p1cs.chanout,
-                       MagScale=scale, StackDepth=stackdepth, IncoDepth=incodepth)
+    with PIK1Output(infile, outdir, channel=p1cs.chanout, magscale=scale,
+                    stackdepth=stackdepth, incodepth=incodepth,
+                    do_phase=output_phases, do_index=True) as p1out:
 
-    p1out.open(infile, do_phase=output_phases, do_index=True)
-    for ii, istack in enumerate(igen1):
-        p1out.write_record(istack)
-        if nmax > 0 and ii >= nmax:
-            break
-    p1out.close()
+        for ii, istack in enumerate(igen1):
+            p1out.write_record(istack)
+            if nmax > 0 and ii >= nmax:
+                break
 
 
 def chunks(iterable, size=10, incomplete=False):

@@ -9,11 +9,10 @@ the format and organization expected for PIK1 on the UTIG hierarchy.
 
 """
 
-import argparse
 from collections import namedtuple
 import logging
-import struct
 import sys
+import os
 
 import numpy as np
 
@@ -37,28 +36,23 @@ class PIK1Output:
     Optionally computes the mean before writing
     It can be used as a tee filter and tap output at any phase in the
     processing stream.
-    TODO: make names PEP8 compliant
-    TODO: use os.path.join
-    TODO: open/close context manager
     """
-    def __init__(self, outdir, channel, MagScale, StackDepth, IncoDepth):
+    def __init__(self, input_filename, outdir, channel, magscale,
+                 stackdepth, incodepth, do_phase=True, do_index=True, loglevel=logging.INFO):
         # type: (str, int, int, int, int) -> None
-        self.MagFileName = "{0:s}/MagLoResInco{1:d}".format(outdir, channel)
-        self.PhsFileName = "{0:s}/PhsLoResInco{1:d}".format(outdir, channel)
-        self.MetaFileName = "{0:s}/MagLoResInco{1:d}.meta".format(outdir, channel)
-        self.TracesFileName = "{0:s}/TraceNumbers{1:d}".format(outdir, channel)
         # File descriptors
-        self.MagOutFD = None # type: Optional[BinaryIO]
-        self.PhsOutFD = None # type: Optional[BinaryIO]
-        self.MetaOutFD = None # type: Optional[BinaryIO]
-        self.TraceNumbersFD = None # type: Optional[BinaryIO]
+        self.mag_fd = None # type: Optional[BinaryIO]
+        self.phs_fd = None # type: Optional[BinaryIO]
+        self.meta_fd = None # type: Optional[BinaryIO]
+        self.tracenumbers_fd = None # type: Optional[BinaryIO]
 
-        self.ChannelNum = channel
-        self.MagScale = MagScale
-        self.StackDepth = StackDepth
-        self.IncoDepth = IncoDepth
+        self.infile = input_filename
+        self.channel = channel
+        self.magscale = magscale
+        self.stackdepth = stackdepth
+        self.incodepth = incodepth
 
-        self.record_increment = self.StackDepth*self.IncoDepth
+        self.record_increment = self.stackdepth*self.incodepth
         self.record_idx = self.record_increment/2
 
         # Cache result for whether we need to do byte swapping
@@ -66,89 +60,83 @@ class PIK1Output:
         # output data type 4-byte big endian (network order)
         # TODO: change from swapping to using built-in spec
         #self.dtype = '>i4'
+        self.do_phase = do_phase
+        self.enable_meta_idx = do_index
 
-    def __del__(self):
-        self.close()
-
-    def open(self, input_filename, do_phase=True, do_index=True):
         # type: (str, bool, bool) -> None
         '''
         Opens all file descriptors and outputs the header for the metafile.
         Having args input is ugly, but it contains vars not used anywhere
         else in the class other than that header file.
-        # TODO: configure logging verbosity?
         '''
         self.close()
 
-        # TODO: remove references to args as possible
-        self.enable_meta_idx = do_index
+        channel = self.channel
+        magfilename = os.path.join(outdir, "MagLoResInco{0:d}".format(channel))
+        phsfilename = os.path.join(outdir, "PhsLoResInco{0:d}".format(channel))
+        metafilename = os.path.join(outdir,"MagLoResInco{0:d}.meta".format(channel))
+        tracesfilename = os.path.join(outdir, "TraceNumbers{0:d}".format(channel))
+
 
         ## Open Input and Output files
-        self.MetaOutFD = open(self.MetaFileName, 'wt')
-        self.MetaOutFD.write('#InputName = "' + input_filename + '"\n')
-        logging.info("writing %s" % self.MagFileName)
-        self.MagOutFD = open(self.MagFileName, 'wb')
-        self.MetaOutFD.write('#MagName = "' + self.MagFileName + '"\n')
+        self.meta_fd = open(metafilename, 'wt')
+        self.meta_fd.write('#InputName = "' + self.infile + '"\n')
+        logging.log(loglevel, "writing %s", magfilename)
+        self.mag_fd = open(magfilename, 'wb')
+        self.meta_fd.write('#MagName = "' + magfilename + '"\n')
 
-        if do_phase:
-            self.PhsOutFD = open(self.PhsFileName, 'wt')
-            self.MetaOutFD.write('#PhsName = "' + self.PhsFileName + '"\n')
+        if self.do_phase:
+            self.phs_fd = open(phsfilename, 'wt')
+            self.meta_fd.write('#PhsName = "' + phsfilename + '"\n')
 
-        self.TraceNumbersFD = open(self.TracesFileName, 'wt')
+        self.tracenumbers_fd = open(tracesfilename, 'wt')
 
         ###### FIXME? - request hdr file from xlob and read/forward
-        # TODO: collect this information into a data structure rather than reading directly from 
         metadata = """
-#ChannelNum = {0.ChannelNum:d}
-#StackDepth = {0.StackDepth:d}
-#IncoDepth = {0.IncoDepth:d}
-#Scale = {0.MagScale:d}
+#ChannelNum = {0.channel:d}
+#StackDepth = {0.stackdepth:d}
+#IncoDepth = {0.incodepth:d}
+#Scale = {0.magscale:d}
 #Log = TRUE
 """.lstrip().format(self)
-        self.MetaOutFD.write(metadata)
+        self.meta_fd.write(metadata)
 
 
     def write_record(self, inco_trace):
         # type: (IncoherentTrace) -> None
         # Write component files if enabled
-        if self.PhsOutFD is not None:
-            Phase = np.int32(inco_trace.phase * 16777216)
+        if self.phs_fd is not None:
+            phase = np.int32(inco_trace.phase * 16777216)
             if self.do_byteswap:
-                Phase.byteswap(True)
-            Phase.tofile(self.PhsOutFD)
+                phase.byteswap(True)
+            phase.tofile(self.phs_fd)
 
-        if self.MagOutFD is not None:
-            ScaledMag = np.int32(self.MagScale * np.log10(inco_trace.magnitude))
+        if self.mag_fd is not None:
+            scaled_mag = np.int32(self.magscale * np.log10(inco_trace.magnitude))
             if self.do_byteswap:
-                ScaledMag.byteswap(True)
-            ScaledMag.tofile(self.MagOutFD)
-        # TODO: change to print
-        if self.TraceNumbersFD is not None:
-            self.TraceNumbersFD.write("%d\n" % (inco_trace.ct.seq,))
+                scaled_mag.byteswap(True)
+            scaled_mag.tofile(self.mag_fd)
+        if self.tracenumbers_fd is not None:
+            self.tracenumbers_fd.write("%d\n" % inco_trace.ct.seq)
 
         if self.enable_meta_idx:
-            self.MetaOutFD.write("%d\n" % (self.record_idx,))
+            self.meta_fd.write("%d\n" % (self.record_idx,))
         self.record_idx += self.record_increment
+
+    def __del__(self):
+        self.close()
 
     def close(self):
         # type: () -> None
-        # flush stacks,
         # TODO: use a for loop
         # close file handles
-        if self.MagOutFD is not None:
-            self.MagOutFD.close()
-            self.MagOutFD = None
+        for fd in ('mag_fd', 'phs_fd', 'meta_fd', 'tracenumbers_fd'):
+            if getattr(self, fd) is not None:
+                getattr(self, fd).close()
+                setattr(self, fd, None)
 
-        if self.PhsOutFD is not None:
-            self.PhsOutFD.close()
-            self.PhsOutFD = None
+    def __enter__(self):
+        return self
 
-        if self.MetaOutFD is not None:
-            self.MetaOutFD.close()
-            self.MetaOutFD = None
-
-        if self.TraceNumbersFD is not None:
-            self.TraceNumbersFD.close()
-            self.TraceNumbersFD = None
-
-
+    def __exit__(self, exc_type,exc_value, exc_traceback):
+        self.close()
