@@ -14,7 +14,7 @@ Checks to be implemented
 - outputs of different channels are equal in size
 - output contents of different channels differ?
 
-
+# TODO: add multipol test examples
 """
 
 import unittest

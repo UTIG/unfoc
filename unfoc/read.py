@@ -135,15 +135,21 @@ def get_radar_type(bxdsfile, nrecords=1000, stream=None):
     returns 'HiCARS2' if it is a 1-antenna radar, or 'MARFA' if it is a 2-antenna
     radar.
     """
-    choffs = {}
+    wanted_channels = [0, 2, 4, 64, 64+2, 64+4]
+    MAX_CHANNELS = len(wanted_channels)
+
+    choffs = set()
     gen = index_RADnhx_bxds_mmap_(bxdsfile, stream=stream)
     # fpos, headerlen, header.choff, header.nsamp
     for ii, (_, _, choff, _) in enumerate(gen):
-        choffs[choff] = choffs.get(choff, 0) + 1
-        if ii >= nrecords or len(choffs) >= 3:
+        choffs.add(choff)
+        if ii >= nrecords or len(choffs) >= MAX_CHANNELS:
             break
     gen.close()
 
+    logging.debug("get_radar_type found channels: %s", sorted(chans))
+    if len(choffs) >= 3:
+        return 'MPOL'
     if len(choffs) >= 2:
         return 'MARFA'
     else:
@@ -267,6 +273,7 @@ def read_RADnhx_gen(bxds_filename, channel, stream=None):
 
     """
     assert 1 <= channel # one-based channel number
+    # choff1 is used to calculate the byte offset of radar data within the packet.
     choff1 = (channel - 1) % 2
     # Filter for listed channel offset in radar record
     chfilter = (channel - 1) - choff1
@@ -281,6 +288,11 @@ def read_RADnhx_gen(bxds_filename, channel, stream=None):
             fpos, headerlen, rchoff, nsamp = radinfo
             if rchoff == 0xff:
                 rchoff = 0
+
+            # 0x40 is the flag for along-track transmit polarization
+            # 0x0f is the channel offset field
+            # We want to ignore other bits.
+            rchoff &= 0x4f
 
             if chfilter != rchoff:
                 continue

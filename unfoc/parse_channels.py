@@ -50,17 +50,41 @@ PIK1ChannelSpec = collections.namedtuple("PIK1ChannelSpec",
                                           'chan1in','scalef1']);
 
 # A quick reference for how to set up pik1 to make the UTIG data correctly
+# See document multipol_data_format.pdf for more details
 
 UTIG_CHANNELS = {
 'MARFA': {
-    'LoResInco1': PIK1ChannelSpec(chanout=1, chan0in=1, scalef0=1, chan1in=3, scalef1=1), # sum left and right low gain
-    'LoResInco2': PIK1ChannelSpec(chanout=2, chan0in=2, scalef0=1, chan1in=4, scalef1=1), # sum left and right high gain
-    'LoResInco3': PIK1ChannelSpec(chanout=3, chan0in=1, scalef0=1, chan1in=3, scalef1=-1), # diff left and right low gain
-    'LoResInco4': PIK1ChannelSpec(chanout=4, chan0in=2, scalef0=1, chan1in=4, scalef1=-1), # diff left and right high gain
-    'LoResInco5': PIK1ChannelSpec(chanout=5, chan0in=1, scalef0=1, chan1in=0, scalef1=0), # left low
-    'LoResInco6': PIK1ChannelSpec(chanout=6, chan0in=2, scalef0=1, chan1in=0, scalef1=0), # left high
-    'LoResInco7': PIK1ChannelSpec(chanout=7, chan0in=3, scalef0=1, chan1in=0, scalef1=0), # right low
-    'LoResInco8': PIK1ChannelSpec(chanout=8, chan0in=4, scalef0=1, chan1in=0, scalef1=0), # right high
+
+'LoResInco1': PIK1ChannelSpec(chanout=1, chan0in=1, scalef0=1, chan1in=3, scalef1=1), # sum left and right low gain (XT)
+    'LoResInco2': PIK1ChannelSpec(chanout=2, chan0in=2, scalef0=1, chan1in=4, scalef1=1), # sum left and right high gain (XT)
+
+    # 2021-12-21 LoResInco3 and LoResInco4 are being reassigned from difference to summed AT-TX
+    #'LoResInco3': PIK1ChannelSpec(chanout=3, chan0in=1, scalef0=1, chan1in=3, scalef1=-1), # diff left and right low gain
+    #'LoResInco4': PIK1ChannelSpec(chanout=4, chan0in=2, scalef0=1, chan1in=4, scalef1=-1), # diff left and right high gain
+    'LoResInco3': PIK1ChannelSpec(chanout=3, chan0in=1+0x40, scalef0=1, chan1in=3+0x40, scalef1=1), # sum left and right low gain (AT)
+    'LoResInco4': PIK1ChannelSpec(chanout=4, chan0in=2+0x40, scalef0=1, chan1in=4+0x40, scalef1=1), # sum left and right high gain (AT)
+
+    # LoResInco5 through LoResInco12 assume an cross-track transmit polarization
+    'LoResInco5': PIK1ChannelSpec(chanout=5, chan0in=1, scalef0=1, chan1in=0, scalef1=0), # left low (XT)
+    'LoResInco6': PIK1ChannelSpec(chanout=6, chan0in=2, scalef0=1, chan1in=0, scalef1=0), # left high (XT)
+    'LoResInco7': PIK1ChannelSpec(chanout=7, chan0in=3, scalef0=1, chan1in=0, scalef1=0), # right low (XT)
+    'LoResInco8': PIK1ChannelSpec(chanout=8, chan0in=4, scalef0=1, chan1in=0, scalef1=0), # right high (XT)
+
+    # Added 2021-12-21 for multipol data format
+    'LoResInco9': PIK1ChannelSpec(chanout=9, chan0in=5, scalef0=1, chan1in=0, scalef1=0), # cen-fwd low
+    'LoResInco10': PIK1ChannelSpec(chanout=10, chan0in=6, scalef0=1, chan1in=0, scalef1=0), # cen-fwd high
+    #'LoResInco11': PIK1ChannelSpec(chanout=11, chan0in=7, scalef0=1, chan1in=0, scalef1=0), # cen-aft low
+    #'LoResInco12': PIK1ChannelSpec(chanout=12, chan0in=8, scalef0=1, chan1in=0, scalef1=0), # cen-aft high
+
+    # LoResInco13 through LoResInco16 assume an along-track transmit polarization
+    'LoResInco13': PIK1ChannelSpec(chanout=13, chan0in=1+0x40, scalef0=1, chan1in=0, scalef1=0), # left low (AT)
+    'LoResInco14': PIK1ChannelSpec(chanout=14, chan0in=2+0x40, scalef0=1, chan1in=0, scalef1=0), # left high (AT)
+    'LoResInco15': PIK1ChannelSpec(chanout=15, chan0in=3+0x40, scalef0=1, chan1in=0, scalef1=0), # right low (AT)
+    'LoResInco16': PIK1ChannelSpec(chanout=16, chan0in=4+0x40, scalef0=1, chan1in=0, scalef1=0), # right high (AT)
+    'LoResInco17': PIK1ChannelSpec(chanout=17, chan0in=5+0x40, scalef0=1, chan1in=0, scalef1=0), # cen-fwd low (AT)
+    'LoResInco18': PIK1ChannelSpec(chanout=18, chan0in=6+0x40, scalef0=1, chan1in=0, scalef1=0), # cen-fwd high (AT)
+    #'LoResInco19': PIK1ChannelSpec(chanout=19, chan0in=7+0x40, scalef0=1, chan1in=0, scalef1=0), # cen-aft low (AT)
+    #'LoResInco20': PIK1ChannelSpec(chanout=20, chan0in=8+0x40, scalef0=1, chan1in=0, scalef1=0), # cen-aft high (AT)},
 },
 'HiCARS2': {
     'LoResInco1': PIK1ChannelSpec(chanout=1, chan0in=1, scalef0=1, chan1in=0, scalef1=0), # pass low gain
@@ -68,7 +92,7 @@ UTIG_CHANNELS = {
 },
 }
 UTIG_CHANNELS['HERA'] = UTIG_CHANNELS['MARFA']
-
+UTIG_CHANNELS['MPOL'] = UTIG_CHANNELS['MARFA']
 
 def get_utig_channels(chanstr, radar='MARFA'):
     """ Expects a comma-separated list of channels to produce. Case sensitive.
