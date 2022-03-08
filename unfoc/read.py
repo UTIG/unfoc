@@ -130,10 +130,12 @@ def gen_ct(bxdsfile):
 
 
 
-def get_radar_type(bxdsfile, nrecords=1000, stream=None):
+def get_radar_type(bxdsfile, nrecords=2000, stream=None):
     """ Inspect a raw datafile and detect what type of radar it came from
     returns 'HiCARS2' if it is a 1-antenna radar, or 'MARFA' if it is a 2-antenna
     radar.
+
+    Inspect a raw datafile and detect all of the channels in this file
     """
     wanted_channels = [0, 2, 4, 64, 64+2, 64+4]
     MAX_CHANNELS = len(wanted_channels)
@@ -142,19 +144,25 @@ def get_radar_type(bxdsfile, nrecords=1000, stream=None):
     gen = index_RADnhx_bxds_mmap_(bxdsfile, stream=stream)
     # fpos, headerlen, header.choff, header.nsamp
     for ii, (_, _, choff, _) in enumerate(gen):
+        if choff == 0xff:
+            choff = 0x00
         choffs.add(choff)
         if ii >= nrecords or len(choffs) >= MAX_CHANNELS:
             break
     gen.close()
 
+    chans = []
+    for choff in choffs:
+        chans.extend([choff+1, choff+2])
+
     logging.debug("get_radar_type found channels: %s", sorted(chans))
     if len(choffs) >= 3:
-        return 'MPOL'
+        return 'MPOL', chans
     if len(choffs) >= 2:
-        return 'MARFA'
+        return 'MARFA', chans
     else:
         assert len(choffs) == 1
-        return 'HiCARS2'
+        return 'HiCARS2', chans
 
 
 
@@ -284,7 +292,7 @@ def read_RADnhx_gen(bxds_filename, channel, stream=None):
 
         ctgen = gen_ct(bxds_filename)
 
-        for radinfo, ctinfo in zip(index_RADnhx_bxds_mmap(bxds_filename, stream), ctgen):
+        for radinfo, ctinfo in zip(index_RADnhx_bxds_mmap_(bxds_filename, stream), ctgen):
             fpos, headerlen, rchoff, nsamp = radinfo
             if rchoff == 0xff:
                 rchoff = 0
@@ -362,7 +370,7 @@ class RadBxds:
         # Length of a record's trace data in bytes per sample
         bytes_per_samp = ((self.channel0_ & 1) + 1) * 2
 
-        for ii, item in enumerate(index_RADnhx_bxds_mmap(filename, stream=stream)):
+        for ii, item in enumerate(index_RADnhx_bxds_mmap_(filename, stream=stream)):
             if item[2] == 0xff: # Replace choff if it is 0xff
                 item = (item[0], item[1], 0x00, item[3])
             if item[2] == choff:

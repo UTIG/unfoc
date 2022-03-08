@@ -37,7 +37,7 @@ import unfoc.read
 #TESTLIST = os.path.join(cwd, 'test_lists/available_radnh_bxds.txt')
 TESTLIST = os.path.join(cwd, 'test_lists/tests_level0.txt')
 OUTPUTDIR = os.path.abspath(os.path.join(cwd, 'covdata'))
-DELETE_OUTPUT = True
+DELETE_OUTPUT = False
 
 class UnfocBase(unittest.TestCase):
     def check_inputs_exist(self, bxds_input):
@@ -52,17 +52,20 @@ class UnfocBase(unittest.TestCase):
 
     def check_outputs_exist(self, basepath, channels, has_phase=True):
         for channel in channels.split(','):
+            self.assertTrue(channel.startswith('LoResInco'))
             expected_files = [os.path.join(basepath, 'Mag' + channel)]
             if has_phase:
                 expected_files.append(os.path.join(basepath, 'Phs' + channel))
 
             for file in expected_files:
-                self.assertTrue(os.path.exists(file))
-                self.assertGreater(os.path.getsize(file), 0)
+                self.assertTrue(os.path.exists(file), msg=file)
+                self.assertGreater(os.path.getsize(file), 0, msg=file)
 
     def run_unfoc(self, unfoc_params, testlist, outprefix):
-        channels_hc = 'LoResInco1,LoResInco2'
-        channels_marfa = 'LoResInco1,LoResInco2,LoResInco5,LoResInco6,LoResInco7,LoResInco8'
+        cdict = {
+            'HiCARS2': 'LoResInco1,LoResInco2',
+            'MARFA': 'LoResInco1,LoResInco2,LoResInco5,LoResInco6,LoResInco7,LoResInco8'
+        }
         os.makedirs(outprefix, exist_ok=True)
         tempdir = tempfile.mkdtemp(prefix=outprefix)
         try:
@@ -70,13 +73,13 @@ class UnfocBase(unittest.TestCase):
             # Use list so we make sure it fully reads the test list before starting.
             for pst, snm, bxds_input in list(read_testlist(testlist)):
                 with self.subTest(pst=pst, snm=snm):
-                    radartype = unfoc.read.get_radar_type(bxds_input)
-                    channels = channels_marfa if radartype == 'MARFA' else channels_hc
-
+                    radartype, data_channels = unfoc.read.get_radar_type(bxds_input)
+                    channels = cdict[radartype]
                     outdir = os.path.join(tempdir, pst)
                     os.makedirs(outdir, exist_ok=True)
                     self.check_inputs_exist(bxds_input)
-                    filter.unfoc(infile=bxds_input, outdir=outdir, channels=channels, bandpass=is_bandpass(pst, snm), **unfoc_params)
+                    filter.unfoc(infile=bxds_input, outdir=outdir, channels=channels,
+                                 bandpass=is_bandpass(pst, snm), **unfoc_params)
                     self.check_outputs_exist(outdir, channels, unfoc_params['output_phases'])
         finally:
             if DELETE_OUTPUT:

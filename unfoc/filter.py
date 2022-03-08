@@ -45,9 +45,9 @@ def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
 
     # pass through if this is a legacy ChannelSpec object
     if isinstance(channels, str):
-        radartype = read.get_radar_type(infile)
+        radartype, data_channels = read.get_radar_type(infile)
         logging.info("Radar type: %s", radartype)
-        channel_specs = get_utig_channels(channels, radar=radartype)
+        channel_specs = get_utig_channels(channels, radar=radartype, input_channels=data_channels)
     else:
         channel_specs = channels
 
@@ -84,7 +84,6 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
     
 
     """
-
 
     # Obtain reference chirp
     ref_chirp = dechirp.get_ref_chirp(bandpass, output_samples)

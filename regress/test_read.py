@@ -78,7 +78,7 @@ class TestParsers(RadBxdsBase):
     Test these on a wide range of input stimulus """
     def run_compare_gen_parsers(self, bxds_input):
         self.check_input_exists(bxds_input)
-        gen1 = read.index_RADnhx_bxds_mmap(bxds_input)
+        gen1 = read.index_RADnhx_bxds_mmap_(bxds_input)
         gen2 = read.index_RADnhx_bxds(bxds_input)
 
         for ii, (data1, data2) in enumerate(itertools.zip_longest(gen1, gen2)):
@@ -194,7 +194,7 @@ class TestRADjh1Class(TestClass1):
 class TestRadBxds(RadBxdsBase):
     """ Run tests on many different bxdses """
     def test_index_generator1(self):
-        return self.run_index_generator(read.index_RADnhx_bxds_mmap)
+        return self.run_index_generator(read.index_RADnhx_bxds_mmap_)
 
     #@unittest.skip("Unneeded since we test equality later")
     #def test_index_generator2(self):
