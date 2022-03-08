@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-#
-# unfoc.py: Unfocused Radar Processor
-# Output file for pik1 (4-byte signed integer, network order)
+
 
 """
+filtering operations for unfocused processing
+
 Perform unfocused processing on a radar file
 
 # TODO: make IncoherentTrace and Trace namedtuples instead of classes.
@@ -22,10 +22,10 @@ import mmap
 
 import numpy as np
 
-import unfoc as unfoc_mod
-import radbxds
-from radbxds import Trace
-#Trace = namedtuple('Trace', 'data ct')
+from unfoc.parse_channels import get_utig_channels
+from unfoc.write import PIK1Output, IncoherentTrace
+import unfoc.dechirp as dechirp
+import unfoc.read as read
 
 
 def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
@@ -35,9 +35,9 @@ def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
 
     # pass through if this is a legacy ChannelSpec object
     if isinstance(channels, str):
-        radartype = radbxds.get_radar_type(infile)
+        radartype = read.get_radar_type(infile)
         logging.info("Radar type: " + radartype)
-        channel_specs = unfoc_mod.get_utig_channels(channels, radar=radartype)
+        channel_specs = get_utig_channels(channels, radar=radartype)
     else:
         channel_specs = channels
 
@@ -72,10 +72,10 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
     """
 
     # Obtain reference chirp
-    ref_chirp = unfoc_mod.get_ref_chirp(bandpass, output_samples)
+    ref_chirp = dechirp.get_ref_chirp(bandpass, output_samples)
 
     # Compute Hamming Filter
-    hfilter = unfoc_mod.get_hfilter(output_samples)
+    hfilter = dechirp.get_hfilter(output_samples)
 
     # Filter Chirp
     ref_chirp *= hfilter
@@ -100,8 +100,8 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
 
 
     os.makedirs(outdir, exist_ok=True)
-    p1out = unfoc_mod.PIK1OutputFile(outdir, channel=p1cs.chanout,
-                                     MagScale=scale, StackDepth=stackdepth, IncoDepth=incodepth)
+    p1out = PIK1Output(outdir, channel=p1cs.chanout,
+                                 MagScale=scale, StackDepth=stackdepth, IncoDepth=incodepth)
 
     p1out.open(infile, do_phase=output_phases, do_index=True)
     for ii, istack in enumerate(igen1):
@@ -182,13 +182,13 @@ def stack_inco_chunk(inco_chunk_gen, channel, dtype=None, output_phases=False):
     else:
         phs = None
 
-    itrace = unfoc_mod.IncoherentTrace(channel=channel, magnitude=magnitude, phase=phs, ct=ct)
+    itrace = IncoherentTrace(channel=channel, magnitude=magnitude, phase=phs, ct=ct)
     return itrace
 
 def sum_traces(trace1, trace2, dtype=np.int32):
     data = trace1.data.astype(np.int32, copy=False) + \
            trace2.data.astype(np.int32, copy=False)
-    return Trace(channel=-1, data=data, ct=trace1.ct)
+    return read.Trace(channel=-1, data=data, ct=trace1.ct)
 
 
 def denoise_and_dechirp(coherent_data, *args, **kwargs):
@@ -196,7 +196,7 @@ def denoise_and_dechirp(coherent_data, *args, **kwargs):
     structure as stack_coherent_chunk """
     stacked, nrecs, ctinfos = coherent_data
     output_samples = kwargs['output_samples']
-    dechirped = unfoc_mod.denoise_and_dechirp(stacked[0:output_samples].astype(np.double), *args, **kwargs)
+    dechirped = dechirp.denoise_and_dechirp(stacked[0:output_samples].astype(np.double), *args, **kwargs)
 
     return dechirped, nrecs, ctinfos
 
@@ -214,72 +214,15 @@ def setup_bxds_reader(bxdsfile, channel_specs):
         # sum channels
 
         # Read traces from first channel of a bxds file
-        channel_gen1 = radbxds.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan0in)
+        channel_gen1 = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan0in)
         # Read traces from another channel of a bxds file
-        channel_gen2 = radbxds.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan1in)
+        channel_gen2 = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan1in)
         # Combine two channels into one, and rewrite the output channel number
         reader_gen = map(sum_traces, channel_gen1, channel_gen2)
     else:
         # If we're only doing one channel, it better be chan0
         assert channel_specs.scalef0 == 1
-        reader_gen = radbxds.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan0in)
+        reader_gen = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan0in)
 
     return reader_gen
 
-
-
-def main():
-    # type: () -> None
-
-
-
-    parser = argparse.ArgumentParser(description='Pulse compress radar data with unfocused processor')
-
-    parser.add_argument('-o', '--outdir', required=True,
-                        help='directory for output files')
-    parser.add_argument('-i', '--input', required=True,
-                        help='filename of 2-byte radar file (bxds file)')
-
-    cgroup = parser.add_mutually_exclusive_group(required=True)
-    cgroup.add_argument('--channel_def',
-                        help="Channel spec string. This option is deprecated. Use --channels")
-    cgroup.add_argument('--channels',
-                        help="comma-separated channels to produce, such as 'LoResInco1,LoResInco2'")
-
-    parser.add_argument('--output_samples', default=3200, type=int,
-                        help='Length of each output sweep (in samples)')
-    parser.add_argument('--stackdepth', required=True, type=int,
-                        help='coherent stacking depth')
-    parser.add_argument('--incodepth', required=True, type=int,
-                        help='incoherent stacking depth')
-
-    parser.add_argument('--scale', type=int, default=20000,
-                        help='Output scale default is 1000*dB')
-    parser.add_argument('--blanking', type=int, default=50,
-                        help='Samples at the top of the record to blank out. Negative number blanks bottom')
-
-    parser.add_argument('--output_phases', action='store_true',
-                        help="output phase, in addition to magnitude")
-    parser.add_argument('--bandpass', action='store_true',
-                        help='bandpass sampling, false is for legacy hicars. Disables cinterp and flips the chirp')
-    parser.add_argument('-j', '--jobs', default=1, type=int,
-                        help="Max number of CPUs to use for processing")
-    parser.add_argument('--nmax', default=0, type=int,
-                        help="Maximum number of stacks to output (usually used for testing)")
-    parser.add_argument('--debug', action='store_true',
-                        help='Print debugging messages')
-
-    args = parser.parse_args()
-
-
-    LOGLEVEL = logging.DEBUG if args.debug else logging.INFO
-    logging.basicConfig(level=LOGLEVEL, stream=sys.stdout,
-                    format='unfoc: [%(levelname)-5s] %(message)s',
-                   )
-
-    unfoc(args.outdir, args.input, args.channels, args.output_samples, args.stackdepth, args.incodepth,
-          args.blanking, args.bandpass, scale=args.scale, output_phases=False, nmax=args.nmax)
-
-
-if __name__ == "__main__":
-    sys.exit(main())

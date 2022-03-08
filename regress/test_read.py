@@ -20,10 +20,10 @@ import numpy as np
 #from test_unfoc1 import read_testlist, parse_fileinfo, UnfocBase
 
 cwd = os.path.dirname(__file__)
-p = os.path.abspath(os.path.join(cwd, ".."))
-sys.path.insert(1, p)
+unfoc_path = os.path.join(cwd, '..')
+sys.path.insert(1, os.path.abspath(unfoc_path))
 
-import radbxds
+import unfoc.read as read
 
 #TESTLIST = os.path.join(cwd, 'test_lists/available_radnh_bxds.txt')
 TESTLIST = os.path.join(cwd, 'test_lists/tests_level1.txt')
@@ -78,8 +78,8 @@ class TestParsers(RadBxdsBase):
     Test these on a wide range of input stimulus """
     def run_compare_gen_parsers(self, bxds_input):
         self.check_input_exists(bxds_input)
-        gen1 = radbxds.index_RADnhx_bxds_mmap(bxds_input)
-        gen2 = radbxds.index_RADnhx_bxds(bxds_input)
+        gen1 = read.index_RADnhx_bxds_mmap(bxds_input)
+        gen2 = read.index_RADnhx_bxds(bxds_input)
 
         for ii, (data1, data2) in enumerate(itertools.zip_longest(gen1, gen2)):
             self.assertEqual(data1, data2, msg="parse mismatch at record %d" % (ii,))
@@ -96,7 +96,7 @@ class TestClass1(RadBxdsBase):
     def setUp(self):
         channel = 1
         pst, snm, bxds_input = list(read_testlist(TESTLIST0))[0]
-        self.rread = radbxds.RadBxds(bxds_input, channel=channel)
+        self.rread = read.RadBxds(bxds_input, channel=channel)
 
     def test_indexing(self):
         """ Check that slicing works consistently with how numpy does it. """
@@ -189,16 +189,16 @@ class TestRADjh1Class(TestClass1):
         channel = 1
         testlist1 = os.path.join(cwd, 'test_lists/tests_radjh1.txt')
         pst, snm, bxds_input = list(read_testlist(testlist1))[0]
-        self.rread = radbxds.RADjh1Bxds(bxds_input, channel=channel)
+        self.rread = read.RADjh1Bxds(bxds_input, channel=channel)
 
 class TestRadBxds(RadBxdsBase):
     """ Run tests on many different bxdses """
     def test_index_generator1(self):
-        return self.run_index_generator(radbxds.index_RADnhx_bxds_mmap)
+        return self.run_index_generator(read.index_RADnhx_bxds_mmap)
 
     #@unittest.skip("Unneeded since we test equality later")
     #def test_index_generator2(self):
-    #    return self.run_index_generator(radbxds.index_RADnhx_bxds)
+    #    return self.run_index_generator(read.index_RADnhx_bxds)
 
     def test_read(self):
         for pst, snm, bxds_input in list(read_testlist(TESTLIST)):
@@ -206,7 +206,7 @@ class TestRadBxds(RadBxdsBase):
                 with self.subTest(pst=pst, snm=snm, channel=channel):
                     self.check_input_exists(bxds_input)
                     trace_p = None
-                    for ii, trace in enumerate(radbxds.read_RADnhx_gen(bxds_input, channel=channel)):
+                    for ii, trace in enumerate(read.read_RADnhx_gen(bxds_input, channel=channel)):
                         self.assertEqual(channel, trace.channel)
                         self.assertEqual(len(trace.data.shape), 1)
                         self.assertGreaterEqual(trace.data.shape[0], 3200)
@@ -223,10 +223,10 @@ class TestRadBxds(RadBxdsBase):
         for pst, snm, bxds_input in list(read_testlist(TESTLIST0)):
             for channel in (1, 2):
                 with self.subTest(pst=pst, snm=snm, channel=channel):
-                    rread = radbxds.RadBxds(bxds_input, channel=channel)
+                    rread = read.RadBxds(bxds_input, channel=channel)
                     self.assertGreater(len(rread), 1) # number of records
 
-                    for ii, trace1 in enumerate(radbxds.read_RADnhx_gen(bxds_input, channel=channel)):
+                    for ii, trace1 in enumerate(read.read_RADnhx_gen(bxds_input, channel=channel)):
                         msg = "mismatch at rread[%d]" % (ii,)
                         trace2 = rread[ii]
                         self.assertEqual(trace1.data.shape, trace2.shape, msg=msg)

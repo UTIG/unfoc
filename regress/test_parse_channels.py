@@ -6,12 +6,11 @@ import os
 import sys
 import logging
 
-
 cwd = os.path.dirname(__file__)
-p = os.path.abspath(os.path.join(cwd, ".."))
-sys.path.insert(1, p)
+unfoc_path = os.path.join(cwd, '..')
+sys.path.insert(1, os.path.abspath(unfoc_path))
 
-import parse_channels as pc
+import unfoc.parse_channels as pc
 
 class TestParseChannels(unittest.TestCase):
     def test_invalid_values(self):

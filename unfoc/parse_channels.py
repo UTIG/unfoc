@@ -64,7 +64,7 @@ def parse_channels(chanstr):
         # Assume it's a simple integer
         chan = int(chanstr)
         logging.warning("Specifying a unfoc channel as a simple integer is deprecated")
-        return [PIK1ChannelSpec._make([chan, chan, 1, 0, 0])];
+        return [PIK1ChannelSpec(chanout=chan, chan0in=chan, scalef0=1, chan1in=0, scalef1=0)];
     except ValueError as e:
         # If not, that's ok.
         pass
@@ -82,5 +82,5 @@ def parse_channels(chanstr):
 
         # Parse strings into a config.
         cfgdata = [int(cols[0]), int(cols[1]), float(cols[2]), int(cols[3]), float(cols[4])]
-        list_config.append(PIK1ChannelSpec._make(cfgdata))
+        list_config.append(PIK1ChannelSpec(*cfgdata))
     return list_config

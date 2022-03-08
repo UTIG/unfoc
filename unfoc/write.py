@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
-#
-# unfoc.py: Unfocused Radar Processor
-# Output file for pik1 (4-byte signed integer, network order)
-#
-# All output files are 4-byte network-order (big endian).
-#
-# see parse_channels.py for instructions on how to set channels
-# TODO: make a graphviz diagram showing the pipeline
+
+""" 
+Handler for writing unfoc output files
+
+"""
 
 import argparse
 from collections import namedtuple
@@ -15,7 +12,6 @@ import struct
 import sys
 
 import numpy as np
-from scipy import signal
 
 try:
     import typing
@@ -23,90 +19,24 @@ try:
 except ImportError: #pragma: no cover
     pass  # Not installed on melt ...
 
-from parse_channels import parse_channels, get_utig_channels, PIK1ChannelSpec
+from unfoc.parse_channels import PIK1ChannelSpec
 
-################################################
-# Enable metadata index writing.
-# This should normally be disabled only for legacy testing.
-# It does not make things slower to output this data.
-enable_meta_index=True
-################################################
-
-from radbxds import Trace, get_radar_stream, gen_ct
+from unfoc.read import Trace, get_radar_stream, gen_ct
 
 # Pairs channel and magnitude/phase data for an incoherent trace
 # type: (int, np.ndarray, np.ndarray, List[tuple]) -> None
 IncoherentTrace = namedtuple('IncoherentTrace', 'channel magnitude phase ct')
 
 
-def cinterp(sweep_fft, index):
-    # type: (np.ndarray, int) -> np.ndarray
-    # sweep_fft is fft of sweep, and index is a bin affected by the LO noise.
-    r = (np.abs(sweep_fft[index-1]) + np.abs(sweep_fft[index+1])) / 2
-    t1 = np.angle(sweep_fft[index-1])
-    t2 = np.angle(sweep_fft[index+1])
-    if (np.abs(t1 - t2) > np.pi):
-        t1 = t1 + 2 * np.pi
-    theta = (t1 + t2) / 2
-    sweep_fft[index] = r * (np.cos(theta) + 1j * np.sin(theta))
-    return sweep_fft
-
-
-# QUESTION: with numpy, is this modifying the input trace, or just the output?
-def denoise_and_dechirp(trace, # type: np.ndarray
-                        ref_chirp, # type: np.ndarray
-                        blanking, # type: int
-                        output_samples, # type: int
-                        do_cinterp, # type: bool
-                        detrend_type='linear'
-                       ):
-    # type: (...) -> np.ndarray
-
-    # Input trace is a 1 x output_samples array.
-    if (blanking >= 0):
-        trace[:blanking] = np.zeros(blanking)
-    else:
-        trace[-blanking:] = np.zeros(len(trace)+blanking)
-
-    #find peak energy below blanking samples
-    ## [n,m]=sort(trace);
-    ## shifter=abs((m(output_samples)));
-    # GNG -- this line wasn't doing what you think it was doing.
-    #shifter = int(np.median(np.argmax(trace)));
-    # You have to do this:
-    #shifter = np.median(np.argwhere(listy == np.amax(listy)))
-    shifter = int(np.argmax(trace))
-    trace = np.roll(trace, -shifter);
-
-    DFT = np.fft.fft(signal.detrend(trace, type=detrend_type))
-
-    if do_cinterp:
-        # Remove five samples per cycle problem
-        n1 = int(np.round(output_samples * (1.0/5)))
-        n2 = output_samples - n1
-        DFT = cinterp(DFT, n1)
-        DFT = cinterp(DFT, n2)
-        # Remove the first harmonic for five samples
-        n1 = int(np.round(output_samples * (2.0/5)))
-        n2 = output_samples - n1
-        DFT = cinterp(DFT, n1)
-        DFT = cinterp(DFT, n2)
-
-    # Do the dechirp
-    Product = np.multiply(ref_chirp, DFT)
-    Dechirped = np.fft.ifft(Product)
-    Dechirped = np.roll(Dechirped, shifter)
-    return Dechirped
-
-
-
-
-class PIK1OutputFile(object):
+class PIK1Output(object):
     """
     Outputs magnitude and phase information for NDArray that comes through.
     Optionally computes the mean before writing
     It can be used as a tee filter and tap output at any phase in the
     processing stream.
+    TODO: make names PEP8 compliant
+    TODO: use os.path.join
+    
     """
     def __init__(self, outdir, channel, MagScale, StackDepth, IncoDepth):
         # type: (str, int, int, int, int) -> None
@@ -130,6 +60,9 @@ class PIK1OutputFile(object):
 
         # Cache result for whether we need to do byte swapping
         self.do_byteswap = sys.byteorder == 'little'
+        # output data type 4-byte big endian (network order)
+        # TODO: change from swapping to using built-in spec
+        #self.dtype = '>i4'
 
     def __del__(self):
         self.close()
@@ -140,6 +73,7 @@ class PIK1OutputFile(object):
         Opens all file descriptors and outputs the header for the metafile.
         Having args input is ugly, but it contains vars not used anywhere
         else in the class other than that header file.
+        # TODO: configure logging verbosity?
         '''
         self.close()
 
@@ -161,6 +95,7 @@ class PIK1OutputFile(object):
 
         ###### FIXME? - request hdr file from xlob and read/forward
         # TODO: collect this information into a data structure rather than reading directly from 
+        # TODO: triple quote strings
         ###### Make this Meta similar
         self.MetaOutFD.write("#ChannelNum = " + str(self.ChannelNum) + "\n")
         self.MetaOutFD.write("#StackDepth = " + str(self.StackDepth) + "\n")
@@ -182,7 +117,7 @@ class PIK1OutputFile(object):
             if self.do_byteswap:
                 ScaledMag.byteswap(True)
             ScaledMag.tofile(self.MagOutFD)
-
+        # TODO: change to print
         if self.TraceNumbersFD is not None:
             self.TraceNumbersFD.write(str(inco_trace.ct.seq) + "\n")
 
@@ -193,7 +128,7 @@ class PIK1OutputFile(object):
     def close(self):
         # type: () -> None
         # flush stacks,
-        # TODO: warn about incomplete stacks
+        # TODO: use a for loop
         # close file handles
         if self.MagOutFD is not None:
             self.MagOutFD.close()
@@ -212,37 +147,3 @@ class PIK1OutputFile(object):
             self.TraceNumbersFD = None
 
 
-def get_ref_chirp(bandpass, trunc_sweep_length):
-    # type: (bool, bool) -> np.ndarray
-    I = np.array([-63, -92, -109, -75, -87, -50, -116, -154, -22, 68, 141,
-                  -610, 1461, 3807, -6147, -5375, 10651, -4412, -9810, 15386,
-                  -3070, -14499, 15130, 3677, -15935, 3743, 13362, -5884,
-                  -13301, 8455, 12542, -8744, -11977, 5105, 13754, -961,
-                  -14342, -5184, 10294, 12194, -2709, -14352, -8807, 5965,
-                  15350, 8368, -6605, -14990, -11515, 196, 11276, 15490,
-                  10300, -645, -10730, -15307, -13379, -7342, 377, 7264,
-                  11662, 13435, 11530, 3243, -4865, -4427, -3233, -4000,
-                  -2472, -2498, -2361, -1230, -1311, -618, -578, -569, -121,
-                  -319, 206, 328, 436, 613, 318, 514, 353, 277, 221, 34, 250,
-                  132, 199, 189, 75, 190, 65, 106, 19, -64, -14, -117])
-    if not bandpass:
-        rchirp = np.flipud(I)
-    else:
-        rchirp = I
-
-    return np.fft.fft(rchirp, n=trunc_sweep_length)
-
-
-def get_hfilter(trunc_sweep_length):
-    # type: (int) -> np.ndarray
-    # Convert MHz to samples
-    min_freq = int(round(2.5 * trunc_sweep_length / 50))
-    max_freq = int(round(17.5 * trunc_sweep_length / 50))
-    dfreq = max_freq - min_freq + 1
-    hamming = np.sin(np.linspace(0, 1, num=dfreq) * np.pi)
-    hfilter = np.hstack((np.zeros(min_freq),
-                         hamming*2,
-                         np.zeros(trunc_sweep_length - 2*max_freq - 1),
-                         np.zeros(hamming.size),
-                         np.zeros(min_freq - 1)))
-    return hfilter
