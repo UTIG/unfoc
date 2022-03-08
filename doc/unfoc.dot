@@ -7,7 +7,7 @@ digraph D {
     // Default formatting options
     node [shape=record]
     // Define node names, labels, and formatting
-    label  = "unfoc.py Data Flow"
+    label  = "unfoc.py Old Data Flow"
     labelloc = "t"; // place the label at the top
 
     subgraph cluster_in {
@@ -60,10 +60,10 @@ digraph D {
 
     MetaN [label="meta"]
 
-    PIK1OutputFile -> MagLoResIncoN
-    PIK1OutputFile -> PhsLoResIncoN
-    PIK1OutputFile -> MetaN
-    PIK1OutputFile -> TraceNumbersN
+    PIK1Output -> MagLoResIncoN
+    PIK1Output -> PhsLoResIncoN
+    PIK1Output -> MetaN
+    PIK1Output -> TraceNumbersN
 
 
 
