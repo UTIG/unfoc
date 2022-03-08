@@ -46,7 +46,7 @@ def main():
     parser.add_argument('--output_phases', action='store_true',
                         help="output phase, in addition to magnitude")
     parser.add_argument('--bandpass', action='store_true',
-                        help='bandpass sampling, false is for legacy hicars. Disables cinterp and flips the chirp')
+                        help='Process bandpass-sampled data (for use with MARFA data, not for use with legacy HiCARS/HiCARS2 data). Disable cinterp and flips the chirp.')
     parser.add_argument('-j', '--jobs', default=1, type=int,
                         help="Max number of CPUs to use for processing")
     parser.add_argument('--nmax', default=0, type=int,
