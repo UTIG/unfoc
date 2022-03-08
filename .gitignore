@@ -4,3 +4,4 @@ MagLoResInco*
 .coverage
 .coverage.*
 test_lists/available*.txt
+covdata

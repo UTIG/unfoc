@@ -37,7 +37,7 @@ import unfoc.read
 #TESTLIST = os.path.join(cwd, 'test_lists/available_radnh_bxds.txt')
 TESTLIST = os.path.join(cwd, 'test_lists/tests_level0.txt')
 OUTPUTDIR = os.path.abspath(os.path.join(cwd, 'covdata'))
-DELETE_OUTPUT = False
+DELETE_OUTPUT = True
 
 class UnfocBase(unittest.TestCase):
     def check_inputs_exist(self, bxds_input):
