@@ -35,7 +35,7 @@ def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
 
     # pass through if this is a legacy ChannelSpec object
     if isinstance(channels, str):
-        radartype = unfoc_mod.get_radar_type(infile)
+        radartype = radbxds.get_radar_type(infile)
         logging.info("Radar type: " + radartype)
         channel_specs = unfoc_mod.get_utig_channels(channels, radar=radartype)
     else:

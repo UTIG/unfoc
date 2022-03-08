@@ -65,7 +65,7 @@ class UnfocBase(unittest.TestCase):
             # Use list so we make sure it fully reads the test list before starting.
             for pst, snm, bxds_input in list(read_testlist(testlist)):
                 with self.subTest(pst=pst, snm=snm):
-                    radartype = unfoc.get_radar_type(bxds_input)
+                    radartype = unfocb.radbxds.get_radar_type(bxds_input)
                     channels = channels_marfa if radartype == 'MARFA' else channels_hc
 
                     outdir = os.path.join(tempdir, pst)

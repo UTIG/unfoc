@@ -101,6 +101,29 @@ def gen_ct(bxdsfile):
 
 
 
+def get_radar_type(bxdsfile, nrecords=1000, stream=None):
+    """ Inspect a raw datafile and detect what type of radar it came from
+    returns 'HiCARS2' if it is a 1-antenna radar, or 'MARFA' if it is a 2-antenna
+    radar.
+    """
+    choffs = {}
+    gen = index_RADnhx_bxds_mmap(bxdsfile, stream=stream)
+    # fpos, headerlen, header.choff, header.nsamp
+    for ii, (_, _, choff, _) in enumerate(gen):
+        choffs[choff] = choffs.get(choff, 0) + 1
+        if ii >= nrecords or len(choffs) >= 3:
+            break
+    gen.close()
+
+    if len(choffs) >= 2:
+        return 'MARFA'
+    else:
+        assert len(choffs) == 1
+        return 'HiCARS2'
+
+
+
+
 # Read individual traces out of RADnh3 or RADnh5 file
 # TODO: This doesn't yet filter on channels, which should be OK - the
 # downstream users ALSO check channel.
