@@ -17,18 +17,19 @@ except ImportError: #pragma: no cover
 
 
 def cinterp(sweep_fft, index):
-    # TODO: we are modifying sweep_fft so we don't need a return value
-    # type: (np.ndarray, int) -> np.ndarray
-    # sweep_fft is fft of sweep, and index is a bin affected by the LO noise.
+    """ Modifies sweep_fft in place to filter out coherent local oscillator
+    component by interpolating in the complex fourier domain
+    sweep_fft is fft of sweep, and index is a bin affected by the LO noise.
+    """
+    # type: (np.ndarray, int) -> None
     r = (np.abs(sweep_fft[index-1]) + np.abs(sweep_fft[index+1])) / 2
     t1 = np.angle(sweep_fft[index-1])
     t2 = np.angle(sweep_fft[index+1])
     if (np.abs(t1 - t2) > np.pi):
         t1 = t1 + 2 * np.pi
     theta = (t1 + t2) / 2
-    # TODO: I think this is equivalent to r*np.exp(1j*theta)
+    # This is equivalent to r*np.exp(1j*theta), but it ain't broke.
     sweep_fft[index] = r * (np.cos(theta) + 1j * np.sin(theta))
-    return sweep_fft
 
 
 # QUESTION: with numpy, is this modifying the input trace, or just the output?
@@ -63,13 +64,13 @@ def denoise_and_dechirp(trace, # type: np.ndarray
         # Remove five samples per cycle problem
         n1 = int(np.round(output_samples * (1.0/5)))
         n2 = output_samples - n1
-        DFT = cinterp(DFT, n1)
-        DFT = cinterp(DFT, n2)
+        cinterp(DFT, n1)
+        cinterp(DFT, n2)
         # Remove the first harmonic for five samples
         n1 = int(np.round(output_samples * (2.0/5)))
         n2 = output_samples - n1
-        DFT = cinterp(DFT, n1)
-        DFT = cinterp(DFT, n2)
+        cinterp(DFT, n1)
+        cinterp(DFT, n2)
 
     # Do the dechirp
     Product = np.multiply(ref_chirp, DFT)
