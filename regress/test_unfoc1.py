@@ -22,6 +22,11 @@ import sys
 import os
 import logging
 import tempfile
+import filecmp
+import shutil
+import itertools
+
+import numpy as np
 
 from test_read import read_testlist
 
@@ -67,29 +72,32 @@ class UnfocBase(unittest.TestCase):
                 self.assertTrue(os.path.exists(file), msg=file)
                 self.assertGreater(os.path.getsize(file), 0, msg=file)
 
-    def run_unfoc(self, unfoc_params, testlist, outprefix):
+    def run_unfoc(self, unfoc_params, testlist, outprefix, channels=None):
         cdict = {
             'HiCARS2': 'LoResInco1,LoResInco2',
             'MARFA': 'LoResInco1,LoResInco2,LoResInco5,LoResInco6,LoResInco7,LoResInco8'
         }
+
+        if not isinstance(testlist, list):
+            testlist = list(read_testlist(testlist))
+
         os.makedirs(outprefix, exist_ok=True)
         tempdir = tempfile.mkdtemp(prefix=outprefix)
         try:
             #with tempfile.TemporaryDirectory(prefix=outprefix, delete=False) as tempdir:
             # Use list so we make sure it fully reads the test list before starting.
-            for pst, snm, bxds_input in list(read_testlist(testlist)):
+            for pst, snm, bxds_input in testlist:
                 with self.subTest(pst=pst, snm=snm):
                     radartype, data_channels = unfoc.read.get_radar_type(bxds_input)
-                    channels = cdict[radartype]
+                    channels1 = channels if channels else cdict[radartype]
                     outdir = os.path.join(tempdir, pst)
                     os.makedirs(outdir, exist_ok=True)
                     self.check_inputs_exist(bxds_input)
-                    filter.unfoc(infile=bxds_input, outdir=outdir, channels=channels,
+                    filter.unfoc(infile=bxds_input, outdir=outdir, channels=channels1,
                                  bandpass=is_bandpass(pst, snm), **unfoc_params)
-                    self.check_outputs_exist(outdir, channels, unfoc_params['output_phases'])
+                    self.check_outputs_exist(outdir, channels1, unfoc_params['output_phases'])
         finally:
             if DELETE_OUTPUT:
-                import shutil
                 shutil.rmtree(tempdir)
         return tempdir
 
@@ -163,6 +171,44 @@ class TestUnfoc(UnfocBase):
             'processes': 1,
         }
         return self.run_unfoc(unfoc_params, testlist, outprefix)
+
+
+class TestSumChannel(UnfocBase):
+    def setUp(self):
+        # just one MARFA
+        self.testlist = [('DEV/JKB2t/Y49a', 'RADnh5', '/disk/kea/WAIS/orig/xlob/DEV/JKB2t/Y49a/RADnh5/bxds')]
+
+        self.unfoc_params = {
+            'output_samples': 3200,
+            'stackdepth': 10,
+            'incodepth': 5,
+            'blanking': 0,
+            'nmax': 1000,
+            'output_phases': False,
+            'processes': 1,
+        }
+        self.outprefix = os.path.join(OUTPUTDIR, 'unfoc_test1_')
+
+
+    def test_sumreader1(self):
+        pst, snm, bxdsfile = self.testlist[0]
+        self.run_sumreader(bxdsfile, 'LoResInco2')
+
+    def test_sumreader2(self):
+        pst, snm, bxdsfile = self.testlist[0]
+        self.run_sumreader(bxdsfile, 'LoResInco5')
+
+    def run_sumreader(self, bxdsfile, channel):
+        p1cs = filter.get_utig_channels(channel, radar='MARFA')[0]
+        reader1 = filter.setup_bxds_reader(bxdsfile, p1cs)
+        reader2 = filter.gen_bxds_traces(bxdsfile, p1cs)
+        for ii, (rec1, rec2) in enumerate(itertools.zip_longest(reader1, reader2)):
+            msg = str(ii)
+            self.assertEqual(rec1.data.shape, rec2.data.shape, msg=msg)
+            self.assertEqual(rec1.ct, rec2.ct, msg=msg)
+            is_equal = np.array_equal(rec1.data, rec2.data)
+            self.assertTrue(is_equal, msg=msg)
+
 
 
 def main():

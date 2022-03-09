@@ -288,7 +288,7 @@ def read_RADnhx_gen(bxds_filename, channel, stream=None):
         mmbxds = mmap.mmap(fd.fileno(), 0, access=mmap.ACCESS_READ)
 
         ctgen = gen_ct(bxds_filename)
-
+        ii = 0
         for radinfo, ctinfo in zip(index_RADnhx_bxds_mmap_(bxds_filename, stream), ctgen):
             fpos, headerlen, rchoff, nsamp = radinfo
             if rchoff == 0xff:
@@ -304,6 +304,7 @@ def read_RADnhx_gen(bxds_filename, channel, stream=None):
 
             i0 = fpos + headerlen + choff1 * nsamp * 2
             try:
+                ii += 1
                 trace1 = np.frombuffer(mmbxds, dtype='>i2', offset=i0, count=nsamp)
             except ValueError as e:
                 break # Not enough data
@@ -364,7 +365,7 @@ class RadBxds:
         self.index_ = []
         filesize = self.mmbxds_.size()
         # Channel offset that we are expecting to filter for.
-        choff = self.channel0_ - self.channel0_ & 1
+        choff = self.channel0_ - (self.channel0_ & 1)
         # Length of a record's trace data in bytes per sample
         bytes_per_samp = ((self.channel0_ & 1) + 1) * 2
 
@@ -436,11 +437,11 @@ class RadBxdsEx:
     (currently only supports combining two channels with summation)
 
     """
-    def __init__(self, filename=None, channels=None, stream=None, dtype=None, bxds_class=RadBxds):
+    def __init__(self, filename=None, channels=None, stream=None, dtype=None): #, bxds_class=RadBxds):
         self.rbxds0_ = None
         self.rbxds1_ = None
         self.dtype = None
-        self.bxds_class_ = bxds_class
+        #self.bxds_class_ = bxds_class
         if filename is not None:
             self.open(filename, channels, stream, dtype)
 
@@ -457,8 +458,8 @@ class RadBxdsEx:
 
         if channels.scalef0 == 1 and channels.scalef1 == 1:
             # sum channels
-            self.rbxds0_ = self.bxds_class_(filename, channels.chan0in, stream)
-            self.rbxds1_ = self.bxds_class_(filename, channels.chan1in, stream)
+            self.rbxds0_ = RadBxds(filename, channels.chan0in, stream)
+            self.rbxds1_ = RadBxds(filename, channels.chan1in, stream)
             self.len_ = min(len(self.rbxds0_), len(self.rbxds1_))
         else:
             # If we're only doing one channel, it better be chan0
@@ -493,27 +494,27 @@ class RadBxdsEx:
         See RadBxds.__getitem__ for examples.
         """
 
-        arr1 = self.rbxds0_[idx].astype(self.dtype, copy=False)
+        arr0 = self.rbxds0_[idx].astype(self.dtype, copy=False)
 
         if self.rbxds1_ is None:
-            return arr1
+            return arr0
 
-        arr2 = self.rbxds1_[idx]
+        arr1 = self.rbxds1_[idx]
 
-        if arr1.shape != arr2.shape:
+        if arr0.shape != arr1.shape:
             # If they aren't the same size, use the smaller of the two
 
             # Assume they are the same dimensionality (guaranteed by RadBxds.__getitem__)
             # assert len(arr1.shape) == len(arr2.shape) == 2
             # assume the fast time dimension is the same
             # assert len(arr1.shape) == 1 or arr1.shape[1] == arr2.shape[1]
-            if arr1.shape[0] < arr2.shape[0]:
-                arr2 = arr2[0:arr1.shape[0], :]
+            if arr0.shape[0] < arr1.shape[0]:
+                arr1 = arr1[0:arr0.shape[0], :]
             else:
-                arr1 = arr1[0:arr2.shape[0], :]
+                arr0 = arr0[0:arr1.shape[0], :]
 
-        arr1 += arr2.astype(self.dtype, copy=False)
-        return arr1
+        arr0 += arr1.astype(self.dtype, copy=False)
+        return arr0
 
 
     def ct(self, idx):

@@ -28,7 +28,7 @@ import unfoc.read as read
 
 
 def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
-          blanking, bandpass, scale=20000, output_phases=False, nmax=0, processes=1):
+          blanking, bandpass, scale=20000, output_phases=False, nmax=0, processes=1, bxdsgen=None):
     """ Generate all requested output channels of unfoc data and write it to the
     specified output directory with the standard file naming.
 
@@ -39,6 +39,8 @@ def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
     The processes parameter specifies how many channels are processed in parallel.
 
     See unfoc_chan for other details on other input parameters.
+
+    bxdsgen is used for debugging
 
     return value: None
     """
@@ -52,7 +54,7 @@ def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
         channel_specs = channels
 
     unfoc_args = lambda p1cs: (outdir, infile, p1cs, output_samples, stackdepth, incodepth,
-                       blanking, bandpass, scale, output_phases, nmax)
+                       blanking, bandpass, scale, output_phases, nmax, bxdsgen)
     gen_args = map(unfoc_args, channel_specs)
     if processes <= 1:
         for _ in map(unfoc_chan_, gen_args):
@@ -66,7 +68,7 @@ def unfoc_chan_(args):
     return unfoc_chan(*args)
 
 def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
-          blanking, bandpass, scale=20000, output_phases=False, nmax=0):
+          blanking, bandpass, scale=20000, output_phases=False, nmax=0, bxdsgen=None):
 
     """ Generate one output channel of unfoc data
     outdir: output directory where data will be placed
@@ -81,9 +83,10 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
     nmax: max number of output samples to prcess, then quit (usually for testing).
 
 
-    
-
     """
+
+    if bxdsgen is None:
+        bxdsgen = setup_bxds_reader
 
     # Obtain reference chirp
     ref_chirp = dechirp.get_ref_chirp(bandpass, output_samples)
@@ -95,7 +98,7 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
     ref_chirp *= hfilter
 
     # Setup bxds file reader to get the correct files.
-    sumchannel_gen = setup_bxds_reader(infile, p1cs)
+    sumchannel_gen = bxdsgen(infile, p1cs)
 
     # Stack traces coherently
     coherent_chunker = chunks(sumchannel_gen, size=stackdepth)
@@ -212,10 +215,11 @@ def setup_bxds_reader(bxdsfile, channel_specs):
     """
     Set up the generators for reading from a bxds file and producing
     pairwise-summed traces or individual unsummed traces
+
     TODO: update PIK1ChannelSpec to have less redundant parameters since we
     make these assertions here.
-
     """
+
     # PIK1ChannelSpec(chanout=1, chan0in=1, scalef0=1, chan1in=3, scalef1=1)
     assert channel_specs.scalef0 == 0 or channel_specs.scalef0 == 1
     assert channel_specs.scalef1 == 0 or channel_specs.scalef1 == 1
@@ -241,3 +245,13 @@ def sum_traces(trace1, trace2, dtype=np.int32):
            trace2.data.astype(np.int32, copy=False)
     return read.Trace(channel=-1, data=data, ct=trace1.ct)
 
+
+def gen_bxds_traces(bxdsfile, channel_specs):
+    """
+    Set up the generators for reading from a bxds file and producing
+    pairwise-summed traces or individual unsummed traces
+    """
+    rread = read.RadBxdsEx(bxdsfile, channels=channel_specs, dtype=np.int32)
+
+    for ii in range(len(rread)):
+        yield read.Trace(channel_specs.chanout, data=rread[ii], ct=rread.ct(ii))
