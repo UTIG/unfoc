@@ -24,6 +24,7 @@ unfoc_path = os.path.join(cwd, '..')
 sys.path.insert(1, os.path.abspath(unfoc_path))
 
 import unfoc.read as read
+import unfoc.parse_channels as pc
 
 #TESTLIST = os.path.join(cwd, 'test_lists/available_radnh_bxds.txt')
 TESTLIST = os.path.join(cwd, 'test_lists/tests_level1.txt')
@@ -155,7 +156,7 @@ class TestClass1(RadBxdsBase):
         traces2 = self.rread[n1:ntraces + 15]
         self.assertEqual(traces2.shape[0], expected_len)
         self.assertTrue(np.array_equal(traces1, traces2))
-        
+
 
     def test_slicing_backwards(self):
         expected_len = 10
@@ -178,11 +179,16 @@ class TestClass1(RadBxdsBase):
         self.assertTrue(np.array_equal(traces1[0, :], traces2[0, :]))
         self.assertTrue(np.array_equal(traces1[2, :], traces2[1, :]))
 
-    def test_ct(self):
+    def test_ct_index(self):
         for ii in range(len(self.rread)):
             ct1 = self.rread.ct(ii)
             self.assertEqual(len(ct1), 2)
         self.assertGreaterEqual(len(self.rread.cts_), len(self.rread))
+
+    def test_ct_slice(self):
+        for ii in range(0, len(self.rread), 10):
+            ct1 = self.rread.ct(slice(ii, ii+10))
+            self.assertLessEqual(len(ct1), 10)
 
 class TestRADjh1Class(TestClass1):
     def setUp(self):
@@ -238,6 +244,42 @@ class TestRadBxds(RadBxdsBase):
     def test_get_rad_stream(self):
         # Try detecting bxds.
         pass
+
+
+class TestClassEx1(RadBxdsBase):
+    """ Test RadBxdsBase with two channels """
+    def setUp(self):
+        p1cs = pc.get_utig_channels('LoResInco1', radar='MARFA')[0]
+        bxds_input = os.path.join(os.getenv('WAIS'), 'orig/xlob/DEV/JKB2t/Y49a/RADnh5/bxds')
+        pst, snm = 'DEV/JKB2t/Y49a', 'RADnh5'
+        self.rread = read.RadBxdsEx(bxds_input, channels=p1cs)
+
+    def test_ex_index(self):
+        # single index
+        for ii in range(len(self.rread)):
+            arr1 = self.rread[ii]
+            self.assertEqual(len(arr1.shape), 1)
+            ct1 = self.rread.ct(ii)
+            self.assertTrue(isinstance(ct1, tuple))
+
+    def test_ex_slice(self):
+        slicelen = 10
+        len1 = len(self.rread)
+        for ii in range(0, len(self.rread), slicelen):
+            msg = "mismatch at %d of %d" % (ii, len1)
+            arr1 = self.rread[ii:(ii+slicelen)]
+            self.assertEqual(len(arr1.shape), 2)
+            self.assertLessEqual(arr1.shape[0], slicelen)
+            ct1 = self.rread.ct(slice(ii,ii+slicelen) )
+            self.assertEqual(len(ct1), arr1.shape[0], msg=msg)
+
+class TestClassEx2(TestClassEx1):
+    """ Test RadBxdsBase with one channel.  Same tests but different channel spec """
+    def setUp(self):
+        p1cs = pc.get_utig_channels('LoResInco5', radar='MARFA')[0]
+        bxds_input = os.path.join(os.getenv('WAIS'), 'orig/xlob/DEV/JKB2t/Y49a/RADnh5/bxds')
+        pst, snm = 'DEV/JKB2t/Y49a', 'RADnh5'
+        self.rread = read.RadBxdsEx(bxds_input, channels=p1cs, dtype=np.double)
 
 
 

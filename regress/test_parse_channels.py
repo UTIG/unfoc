@@ -50,6 +50,15 @@ class TestParseChannels(unittest.TestCase):
         p1cs = pc.get_utig_channels('LoResInco1,LoResInco2,LoResInco3')
         self.assertEqual(len(p1cs), 3)
 
+    def test_utig_channels_invalid(self):
+        p1cs = pc.get_utig_channels('LoResInco5,LoResInco88')
+        self.assertEqual(len(p1cs), 1)
+
+    def test_utig_channels_multipol(self):
+        # In the case of multipol, we might ask for some extended channels that we don't have
+        p1cs = pc.get_utig_channels('LoResInco1,LoResInco3,LoResInco6,LoResInco9', input_channels=[1,2,3,4])
+        self.assertEqual(len(p1cs), 2, msg=str(p1cs))
+
 
 
 if __name__ == "__main__":

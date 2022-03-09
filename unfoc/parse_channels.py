@@ -119,6 +119,7 @@ def get_utig_channels(chanstr, radar='MARFA', input_channels=None):
         if input_channels is not None and (\
            (p1cs.chan0in > 0 and p1cs.chan0in not in input_channels) or \
            (p1cs.chan1in > 0 and p1cs.chan1in not in input_channels)):
+                logging.debug("unfoc::parse_channels: skip channel %s", name)
                 continue
         # Only add to config if input is available.
         list_config.append(p1cs)

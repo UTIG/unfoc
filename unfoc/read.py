@@ -47,7 +47,8 @@ import mmap
 
 import numpy as np
 
-
+# Pik1ChannelSpec
+#import unfoc.parse_channels
 
 
 HEADER_FORMATS = {
@@ -339,9 +340,10 @@ class RadBxds:
             self.fd_.close()
             self.fd_ = None
         self.cts_ = None
+        self.index_ = []
 
 
-    def open(self, filename, channel, stream=None, do_ct=False):
+    def open(self, filename, channel, stream=None):
         """ Open the bxds and load record index for bxds
         This ignores sequence numbers and assumes that there are no
         out-of-order radar records within a channel.
@@ -382,6 +384,7 @@ class RadBxds:
         """ Return the number of traces for this channel """
         return len(self.index_)
 
+
     def __getitem__(self, idx):
         """ Return data for selected radar records as an ndarray.
 
@@ -412,6 +415,7 @@ class RadBxds:
         return data
 
 
+
     def ct(self, idx):
         """ Return a one or more ct values.  Supports slicing.
         # Get the fourth ct seq/tim value
@@ -424,6 +428,100 @@ class RadBxds:
             all_cts = tuple(gen_ct(self.fd_.name))
             self.cts_ = [all_cts[idx[4]] for idx in self.index_]
         return self.cts_[idx]
+
+
+
+class RadBxdsEx:
+    """ Combine one or more RADnh3/RADnh5 channels as specified in the channel spec.
+    (currently only supports combining two channels with summation)
+
+    """
+    def __init__(self, filename=None, channels=None, stream=None, dtype=None, bxds_class=RadBxds):
+        self.rbxds0_ = None
+        self.rbxds1_ = None
+        self.dtype = None
+        self.bxds_class_ = bxds_class
+        if filename is not None:
+            self.open(filename, channels, stream, dtype)
+
+    def open(self, filename, channels, stream=None, dtype=None):
+        """
+        filename: bxds file to load
+        channels: list of channels to load (a PIK1ChannelSpec object)
+        stream: hint at stream type
+        """
+
+        # PIK1ChannelSpec(chanout=1, chan0in=1, scalef0=1, chan1in=3, scalef1=1)
+        assert channels.scalef0 == 0 or channels.scalef0 == 1
+        assert channels.scalef1 == 0 or channels.scalef1 == 1
+
+        if channels.scalef0 == 1 and channels.scalef1 == 1:
+            # sum channels
+            self.rbxds0_ = self.bxds_class_(filename, channels.chan0in, stream)
+            self.rbxds1_ = self.bxds_class_(filename, channels.chan1in, stream)
+            self.len_ = min(len(self.rbxds0_), len(self.rbxds1_))
+        else:
+            # If we're only doing one channel, it better be chan0
+            assert channels.scalef0 == 1
+            self.rbxds0_ = RadBxds(filename, channels.chan0in, stream)
+            self.rbxds1_ = None
+            self.len_ = len(self.rbxds0_)
+
+        if dtype is None:
+            # Use '>i2' if not combining, otherwise '>i4'
+            self.dtype = '>i2' if self.rbxds1_ is None else '>i4'
+        else: # Use the user-specified dtype
+            self.dtype = dtype
+
+    def __del__(self):
+        self.close()
+
+    def close(self):
+        self.rbxds0_.close()
+        if self.rbxds1_ is not None:
+            self.rbxds1_.close()
+
+    def __len__(self):
+        # We track len in an internal variable so that we return the right
+        # number of CT
+        return self.len_
+
+    def __getitem__(self, idx):
+        """ Return data for selected radar records combined as an ndarray.
+
+        Records to return can be selected using slice notation.
+        See RadBxds.__getitem__ for examples.
+        """
+
+        arr1 = self.rbxds0_[idx].astype(self.dtype, copy=False)
+
+        if self.rbxds1_ is None:
+            return arr1
+
+        arr2 = self.rbxds1_[idx]
+
+        if arr1.shape != arr2.shape:
+            # If they aren't the same size, use the smaller of the two
+
+            # Assume they are the same dimensionality (guaranteed by RadBxds.__getitem__)
+            # assert len(arr1.shape) == len(arr2.shape) == 2
+            # assume the fast time dimension is the same
+            # assert len(arr1.shape) == 1 or arr1.shape[1] == arr2.shape[1]
+            if arr1.shape[0] < arr2.shape[0]:
+                arr2 = arr2[0:arr1.shape[0], :]
+            else:
+                arr1 = arr1[0:arr2.shape[0], :]
+
+        arr1 += arr2.astype(self.dtype, copy=False)
+        return arr1
+
+
+    def ct(self, idx):
+        """ Return the CT of the first channel """
+        if isinstance(idx, slice):
+            # Return the shorter of the two sequences
+            idx = slice(*idx.indices(self.len_))
+        return self.rbxds0_.ct(idx)
 
 class RADjh1Bxds:
     """ Reader for RADjh1 bxds.  This is really just a thin wrapper
@@ -487,4 +585,15 @@ class RADjh1Bxds:
             self.cts_ = tuple(gen_ct(self.filename_))
 
         return self.cts_[idx]
+
+
+# This could be done but we don't need it.
+#class RADjh1BxdsEx(RadBxdsEx):
+#    """ Combine one or more RADjh1 channels as specified in the channel spec.
+#    (currently only supports combining two channels with summation)
+#
+#    """
+#    def __init__(self, filename=None, channels=None, stream=None, dtype=None, bxds_class=RADjh1Bxds)
+#        super(RADjh1BxdsEx, self).__init__(filename, channels, stream, dtype, bxds_class)
+
 

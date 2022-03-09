@@ -37,7 +37,13 @@ import unfoc.read
 #TESTLIST = os.path.join(cwd, 'test_lists/available_radnh_bxds.txt')
 TESTLIST = os.path.join(cwd, 'test_lists/tests_level0.txt')
 OUTPUTDIR = os.path.abspath(os.path.join(cwd, 'covdata'))
+
+# Normal output
 DELETE_OUTPUT = True
+LOGLEVEL = logging.WARNING
+# Debugging
+#DELETE_OUTPUT = False
+#LOGLEVEL = logging.INFO
 
 class UnfocBase(unittest.TestCase):
     def check_inputs_exist(self, bxds_input):
@@ -160,7 +166,7 @@ class TestUnfoc(UnfocBase):
 
 
 def main():
-    logging.basicConfig(level=logging.WARNING, stream=sys.stdout)
+    logging.basicConfig(level=LOGLEVEL, stream=sys.stdout)
     unittest.main()
 
 

@@ -191,8 +191,7 @@ def stack_inco_chunk(inco_chunk_gen, channel, dtype=None, output_phases=False):
     magnitude /= ntraces
     ct = list_cts[ntraces//2]
     if output_phases:
-        # convert to cdouble to match older version
-        phs = np.angle(traces[ntraces//2].astype(np.cdouble))
+        phs = np.angle(traces[ntraces//2])
     else:
         phs = None
 
@@ -204,7 +203,7 @@ def denoise_and_dechirp(coherent_data, *args, **kwargs):
     structure as stack_coherent_chunk """
     stacked, nrecs, ctinfos = coherent_data
     output_samples = kwargs['output_samples']
-    dechirped = dechirp.denoise_and_dechirp(stacked[0:output_samples].astype(np.double), *args, **kwargs)
+    dechirped = dechirp.denoise_and_dechirp(stacked[0:output_samples].astype(np.double, copy=False), *args, **kwargs)
 
     return dechirped, nrecs, ctinfos
 
@@ -241,5 +240,4 @@ def sum_traces(trace1, trace2, dtype=np.int32):
     data = trace1.data.astype(np.int32, copy=False) + \
            trace2.data.astype(np.int32, copy=False)
     return read.Trace(channel=-1, data=data, ct=trace1.ct)
-
 
