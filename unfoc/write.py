@@ -55,11 +55,6 @@ class PIK1Output:
         self.record_increment = self.stackdepth*self.incodepth
         self.record_idx = self.record_increment/2
 
-        # Cache result for whether we need to do byte swapping
-        self.do_byteswap = sys.byteorder == 'little'
-        # output data type 4-byte big endian (network order)
-        # TODO: change from swapping to using built-in spec
-        #self.dtype = '>i4'
         self.do_phase = do_phase
         self.enable_meta_idx = do_index
 
@@ -105,22 +100,20 @@ class PIK1Output:
     def write_record(self, inco_trace):
         # type: (IncoherentTrace) -> None
         # Write component files if enabled
+        # output data type 4-byte big endian (network order)
         if self.phs_fd is not None:
-            phase = np.int32(inco_trace.phase * 16777216)
-            if self.do_byteswap:
-                phase.byteswap(True)
+            phase = (inco_trace.phase * 16777216).astype('>i4')
             phase.tofile(self.phs_fd)
 
         if self.mag_fd is not None:
-            scaled_mag = np.int32(self.magscale * np.log10(inco_trace.magnitude))
-            if self.do_byteswap:
-                scaled_mag.byteswap(True)
+            scaled_mag = (self.magscale * np.log10(inco_trace.magnitude)).astype('>i4')
             scaled_mag.tofile(self.mag_fd)
+
         if self.tracenumbers_fd is not None:
             self.tracenumbers_fd.write("%d\n" % inco_trace.ct.seq)
 
         if self.enable_meta_idx:
-            self.meta_fd.write("%d\n" % (self.record_idx,))
+            self.meta_fd.write("%d\n" % self.record_idx)
         self.record_idx += self.record_increment
 
     def __del__(self):
@@ -128,7 +121,6 @@ class PIK1Output:
 
     def close(self):
         # type: () -> None
-        # TODO: use a for loop
         # close file handles
         for fd in ('mag_fd', 'phs_fd', 'meta_fd', 'tracenumbers_fd'):
             if getattr(self, fd) is not None:

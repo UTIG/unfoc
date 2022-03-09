@@ -167,10 +167,6 @@ def get_radar_type(bxdsfile, nrecords=2000, stream=None):
 
 
 
-# Read individual traces out of RADnh3 or RADnh5 file
-# TODO: This doesn't yet filter on channels, which should be OK - the
-# downstream users ALSO check channel.
-
 def index_RADnhx_bxds(input_filename, stream=None):
     # type: (str) -> Generator[tuple]
     """ Read the positions of packets within a RADnh3 and RADnh5 bxds file
@@ -220,14 +216,14 @@ def index_RADnhx_bxds(input_filename, stream=None):
 
 
 
-# Read individual traces out of RADnh3 or RADnh5 file
-# TODO: This doesn't yet filter on channels, which should be OK - the
-# downstream users ALSO check channel.
 def index_RADnhx_bxds_mmap_(input_filename, stream=None):
     # type: (str) -> Generator[tuple]
     """ Read the positions of packets within a RADnh3 and RADnh5 bxds file
     and return these as a generator
     Routines can then use this to seek to the correct location in a file.
+
+    This version uses a slightly different syntax but it's functionally identical
+    to index_RADnhx_bxds
     """
 
     if stream is None:
