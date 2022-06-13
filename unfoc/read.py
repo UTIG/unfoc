@@ -364,7 +364,7 @@ class RadBxds:
         self.index_ = []
         filesize = self.mmbxds_.size()
         # Channel offset that we are expecting to filter for.
-        choff = self.channel0_ - self.channel0_ & 1
+        choff = self.channel0_ - (self.channel0_ & 1)
         # Length of a record's trace data in bytes per sample
         bytes_per_samp = ((self.channel0_ & 1) + 1) * 2
 
