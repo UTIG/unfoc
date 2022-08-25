@@ -125,6 +125,66 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
                 break
 
 
+def unfoc_1m_chan(outdir, infile, chanout, output_samples, stackdepth, incodepth,
+          blanking, bandpass, scale=20000, output_phases=False, nmax=0):
+
+    """ Generate one output channel of unfoc 1-meter-spaced data
+    outdir: output directory where data will be placed
+    infile: input bxds file
+    chanout: Output channel name -- used for setting output filename within outdir
+    output_samples: number of output samples to place into the output file
+    stackdepth: coherent stacking depth
+    incodepth: incoherent stacking depth
+    blanking: samples to blank
+    scale: output magnitude scaling factor
+    output_phases: if true, also output phase data
+    nmax: max number of output samples to prcess, then quit (usually for testing).
+
+    This function is derived from unfoc_chan, and basically just replaces the input
+    reader function with setup_1m_reader()
+
+    """
+
+    # Obtain reference chirp
+    ref_chirp = dechirp.get_ref_chirp(bandpass, output_samples)
+
+    # Compute Hamming Filter
+    hfilter = dechirp.get_hfilter(output_samples)
+
+    # Filter Chirp
+    ref_chirp *= hfilter
+
+    # Setup bxds file reader to get the correct files.
+    sumchannel_gen = setup_1m_reader(infile, channel=chanout)
+
+    # Stack traces coherently
+    coherent_chunker = chunks(sumchannel_gen, size=stackdepth)
+    # the last coherent trace is chosen when doing summed channels
+    coh_trace_gen = map(stack_coherent_chunk, coherent_chunker)
+
+    # dechirp
+    f_denoise_and_dechirp = lambda data: denoise_and_dechirp(data,
+                ref_chirp=ref_chirp, blanking=blanking, output_samples=output_samples, do_cinterp=not bandpass)
+
+    denoise_gen = map(f_denoise_and_dechirp, coh_trace_gen)
+
+    # incoherently stack
+    inco_chunker = chunks(denoise_gen, size=incodepth, incomplete=False)
+    f_stack_inco_chunk = lambda stack: stack_inco_chunk(stack, chanout, output_phases=output_phases)
+    igen1 = map(f_stack_inco_chunk, inco_chunker)
+
+
+    os.makedirs(outdir, exist_ok=True)
+    with PIK1Output(infile, outdir, channel=chanout, magscale=scale,
+                    stackdepth=stackdepth, incodepth=incodepth,
+                    do_phase=output_phases, do_index=True, tag='HiResInco') as p1out:
+
+        for ii, istack in enumerate(igen1):
+            p1out.write_record(istack)
+            if nmax > 0 and ii >= nmax:
+                break
+
+
 def chunks(iterable, size=10, incomplete=False):
     # https://stackoverflow.com/questions/24527006/\
     # split-a-generator-into-chunks-without-pre-walking-it/24527424
@@ -236,8 +296,32 @@ def setup_bxds_reader(bxdsfile, channel_specs):
 
     return reader_gen
 
+
 def sum_traces(trace1, trace2, dtype=np.int32):
     data = trace1.data.astype(np.int32, copy=False) + \
            trace2.data.astype(np.int32, copy=False)
     return read.Trace(channel=-1, data=data, ct=trace1.ct)
+
+
+def setup_1m_reader(bxdsfile, channel, samples_per_trace=3200):
+    """
+    Set up the generator for reading from a S2_FIL bxdsN.i file
+    Expects bxdsN.i to be an array of 2-byte little endian integers,
+    typically 3200 samples per trace.
+
+    If the file is not of the expected size, it raises an AssertionError
+
+    """
+    nbytes = os.path.getsize(bxdsfile)
+    assert nbytes % (2*samples_per_trace) == 0
+    ntraces = nbytes // (2*samples_per_trace)
+
+    dims = (ntraces, samples_per_trace)
+    radargram_in = np.memmap(bxdsfile, dtype='<i2', mode='r', shape=dims)
+
+    # The bxds file doesn't have CT info so we put in null data.
+    ctinfo = read.CT_t(0, 0)
+
+    for arr_trace in radargram_in:
+        yield read.Trace(channel=channel, data=arr_trace, ct=ctinfo)
 

@@ -38,7 +38,8 @@ class PIK1Output:
     processing stream.
     """
     def __init__(self, input_filename, outdir, channel, magscale,
-                 stackdepth, incodepth, do_phase=True, do_index=True, loglevel=logging.INFO):
+                 stackdepth, incodepth, do_phase=True, do_index=True,
+                 tag='LoResInco', loglevel=logging.INFO):
         # type: (str, int, int, int, int) -> None
         # File descriptors
         self.mag_fd = None # type: Optional[BinaryIO]
@@ -67,9 +68,9 @@ class PIK1Output:
         self.close()
 
         channel = self.channel
-        magfilename = os.path.join(outdir, "MagLoResInco{0:d}".format(channel))
-        phsfilename = os.path.join(outdir, "PhsLoResInco{0:d}".format(channel))
-        metafilename = os.path.join(outdir,"MagLoResInco{0:d}.meta".format(channel))
+        magfilename = os.path.join(outdir, "Mag{0:s}{1:d}".format(tag, channel))
+        phsfilename = os.path.join(outdir, "Phs{0:s}{1:d}".format(tag, channel))
+        metafilename = os.path.join(outdir,"Mag{0:s}{1:d}.meta".format(tag, channel))
         tracesfilename = os.path.join(outdir, "TraceNumbers{0:d}".format(channel))
 
 
