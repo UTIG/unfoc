@@ -41,7 +41,6 @@ import mmap
 import unfoc.filter as filter
 
 
-
 def main():
     # type: () -> None
     parser = argparse.ArgumentParser(description='Pulse compress 1-m resampled radar data with unfocused processor')
@@ -70,8 +69,6 @@ def main():
                         help="output phase, in addition to magnitude")
     parser.add_argument('--bandpass', action='store_true',
                         help='Process bandpass-sampled data (for use with MARFA data, not for use with legacy HiCARS/HiCARS2 data). Disable cinterp and flips the chirp.')
-    parser.add_argument('-j', '--jobs', default=1, type=int,
-                        help="Max number of CPUs to use for processing")
     parser.add_argument('--nmax', default=0, type=int,
                         help="Maximum number of stacks to output (usually used for testing)")
     parser.add_argument('--debug', action='store_true',

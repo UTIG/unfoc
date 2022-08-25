@@ -28,6 +28,10 @@ coverage3 run -a ../run_unfoc.py -i /disk/kea/WAIS/orig/xlob/NIS4/IBH0e/X84b/RAD
                               -o $OUTDIR/testcmd --nmax 10 \
                               --stackdepth 10 --incodepth 5 --channels LoResInco1
 
+
+coverage3 run -a ../run_unfoc_1m.py -i /disk/kea/WAIS/targ/xtra/KRT2/FOC/Best_Versions/S2_FIL/NIS4/IBH0e/X84b/bxds2.i \
+                                 --stackdepth 1 --incodepth 1  -o $OUTDIR/testcmd --nmax 100 --c 2
+
 rm -rf $OUTDIR
 
 echo "$S0: coverage3 report -m to show coverage results"
