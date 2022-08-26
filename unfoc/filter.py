@@ -230,10 +230,10 @@ def setup_reader(bxdsfile, channel_specs, input_type=None):
             input_type = 'orig'
 
     if input_type == 'S2_FIL':
-        return setup_1m_reader(bxdsfile, channel=channel_specs.chanout), 'HiResInco'
+        return read.read_1m_gen(bxdsfile, channel=channel_specs.chanout), 'HiResInco'
     else:
         assert input_type == 'orig'
-        return setup_bxds_reader(bxdsfile, channel_specs), output_tag, 'LoResInco'
+        return setup_bxds_reader(bxdsfile, channel_specs), 'LoResInco'
 
 
 def setup_bxds_reader(bxdsfile, channel_specs):
@@ -269,22 +269,3 @@ def sum_traces(trace1, trace2, dtype=np.int32):
     data = trace1.data.astype(np.int32, copy=False) + \
            trace2.data.astype(np.int32, copy=False)
     return read.Trace(channel=-1, data=data, ct=trace1.ct)
-
-
-def setup_1m_reader(bxdsfile, channel, samples_per_trace=3200):
-    """
-    Set up the generator for reading from a S2_FIL bxdsN.i file
-    Expects bxdsN.i to be an array of 2-byte little endian integers,
-    typically 3200 samples per trace.
-
-    If the file is not of the expected size, it raises an AssertionError
-    """
-    nbytes = os.path.getsize(bxdsfile)
-    assert nbytes % (2*samples_per_trace) == 0
-    ntraces = nbytes // (2*samples_per_trace)
-
-    radargram_in = np.memmap(bxdsfile, dtype='<i2', mode='r', shape=(ntraces, samples_per_trace))
-
-    for ii, arr_trace in enumerate(radargram_in):
-        yield read.Trace(channel=channel, data=arr_trace, ct=read.CT_t(tim=0, seq=ii))
-

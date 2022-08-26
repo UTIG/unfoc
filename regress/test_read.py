@@ -282,6 +282,18 @@ class TestClassEx2(TestClassEx1):
         self.rread = read.RadBxdsEx(bxds_input, channels=p1cs, dtype=np.double)
 
 
+class TestOneMeter(unittest.TestCase):
+    def test_1m_a(self):
+        bxds_path = os.path.join(os.getenv('WAIS'), 'targ/xtra/KRT2/FOC/Best_Versions/S2_FIL/NIS4/IBH0e/X84b')
+        for chan in (1, 2, 5, 6, 7, 8):
+            with self.subTest(chan=chan):
+                bxds_input = os.path.join(bxds_path, 'bxds{:d}.i'.format(chan))
+                prevct = None
+                for t in read.read_1m_gen(bxds_input, chan):
+                    if prevct is not None:
+                        self.assertLess(prevct.seq, t.ct.seq)
+                    prevct = t.ct
+
 
 def main():
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)

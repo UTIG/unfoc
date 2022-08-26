@@ -597,3 +597,19 @@ class RADjh1Bxds:
 #        super(RADjh1BxdsEx, self).__init__(filename, channels, stream, dtype, bxds_class)
 
 
+def read_1m_gen(bxdsfile, channel, samples_per_trace=3200):
+    """
+    Set up the generator for reading from a S2_FIL bxdsN.i file
+    Expects bxdsN.i to be an array of 2-byte little endian integers,
+    typically 3200 samples per trace.
+    If the file is not of the expected size, it raises an AssertionError
+    Channel is currently required, but hypothetically you could figure it out from the bxdsfile filename.
+    """
+    nbytes = os.path.getsize(bxdsfile)
+    assert nbytes % (2*samples_per_trace) == 0
+    ntraces = nbytes // (2*samples_per_trace)
+
+    radargram_in = np.memmap(bxdsfile, dtype='<i2', mode='r', shape=(ntraces, samples_per_trace))
+
+    for ii, arr_trace in enumerate(radargram_in):
+        yield Trace(channel=channel, data=arr_trace, ct=CT_t(tim=0, seq=ii))
