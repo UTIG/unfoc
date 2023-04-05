@@ -179,6 +179,51 @@ class TestClass1(RadBxdsBase):
         self.assertTrue(np.array_equal(traces1[0, :], traces2[0, :]))
         self.assertTrue(np.array_equal(traces1[2, :], traces2[1, :]))
 
+
+
+    def test_slicing_2d(self):
+        """ Test for issue #4, Support 2D ndarray slicing syntax in RadBxds.getitem
+        Test multiple input files but no need to read the full file
+        """
+        # 1d way
+        traces1 = self.rread[0:10][:, 20:120]
+        s = traces1.shape
+        self.assertEqual(s[0], 10)
+        self.assertTrue(s[1] == 100)
+
+        # 2d way
+        traces2 = self.rread[0:10, 20:120]
+        s = traces2.shape
+        self.assertEqual(s[0], 10)
+        self.assertTrue(s[1] == 100)
+
+        self.assertIsNotNone(traces1)
+        self.assertIsNotNone(traces2)
+        # Check that they come out to the same value
+        np.testing.assert_equal(traces1, traces2)
+
+    def test_slicing_2d_stride(self):
+        """ Test for issue #4, Support 2D ndarray slicing syntax in RadBxds.getitem
+        Test multiple input files but no need to read the full file
+        """
+        # 1d way
+        traces1 = self.rread[0:10][:, 20:120:2]
+        s = traces1.shape
+        self.assertEqual(s[0], 10)
+        self.assertTrue(s[1] == 50)
+
+        # 2d way
+        traces2 = self.rread[0:10, 20:120:2]
+        s = traces2.shape
+        self.assertEqual(s[0], 10)
+        self.assertTrue(s[1] == 50)
+
+        # Check that they come out to the same value
+        np.testing.assert_equal(traces1, traces2)
+
+
+
+
     def test_ct_index(self):
         for ii in range(len(self.rread)):
             ct1 = self.rread.ct(ii)

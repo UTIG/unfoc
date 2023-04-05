@@ -397,6 +397,8 @@ class RadBxds:
         trace = bxdsmm[5]
         # Return a 5 x 3200 array for channel 2.
         traces = bxdsmm[5:10]
+        # Return a portion of the array
+        traces = bxdsmm[5:10, 200:400]
         """
 
         if isinstance(idx, slice):
@@ -408,6 +410,18 @@ class RadBxds:
                 fpos, headerlen, _, nsamp, _ = idxinfo
                 i0 = fpos + headerlen + self.trace_byteoffset_ * nsamp
                 data[ii, :] = np.frombuffer(self.mmbxds_, dtype=">i2", offset=i0, count=nsamp)
+        elif isinstance(idx, tuple):
+            # multiple indices -- pass others down to numpy
+            indices = idx[0].indices(len(self.index_))
+            ntraces = len(range(*indices))
+            sindices = idx[1].indices(self.index_[0][3])
+            nsamples = len(range(*sindices))
+            assert len(idx) == 2
+            data = np.empty((ntraces, nsamples), dtype=">i2")
+            for ii, idxinfo in enumerate(self.index_[idx[0]]):
+                fpos, headerlen, _, nsamp, _ = idxinfo
+                i0 = fpos + headerlen + self.trace_byteoffset_ * nsamp
+                data[ii, :] = np.frombuffer(self.mmbxds_, dtype=">i2", offset=i0, count=nsamp)[idx[1]]
 
         else: # assume it is an individual index.  Return a singleton dimension.
             fpos, headerlen, _, nsamp, _ = self.index_[idx]
