@@ -127,7 +127,7 @@ def gen_ct(bxdsfile):
         # e.g., THW PBA0a X66a 9644392 2020 02 02 03 22 59 70 2762000089
         # yield ct, seq
         yield CT_t(int(fields[3]), int(fields[11]))
-
+    fh.close()
 
 
 
