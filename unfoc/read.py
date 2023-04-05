@@ -304,7 +304,9 @@ def read_RADnhx_gen(bxds_filename, channel, stream=None):
 
             i0 = fpos + headerlen + choff1 * nsamp * 2
             try:
-                trace1 = np.frombuffer(mmbxds, dtype='>i2', offset=i0, count=nsamp)
+                # np.copy is to address unfoc Issue #6: BufferError: cannot close exported pointers exist
+                # which occurs with numpy version 1.22.4 and later
+                trace1 = np.copy(np.frombuffer(mmbxds, dtype='>i2', offset=i0, count=nsamp))
             except ValueError as e:
                 break # Not enough data
 
@@ -410,7 +412,9 @@ class RadBxds:
         else: # assume it is an individual index.  Return a singleton dimension.
             fpos, headerlen, _, nsamp, _ = self.index_[idx]
             i0 = fpos + headerlen + self.trace_byteoffset_ * nsamp
-            data = np.frombuffer(self.mmbxds_, dtype=">i2", offset=i0, count=nsamp)
+            # np.copy is to address unfoc Issue #6: BufferError: cannot close exported pointers exist
+            # which occurs with numpy version 1.22.4 and later
+            data = np.copy(np.frombuffer(self.mmbxds_, dtype=">i2", offset=i0, count=nsamp))
 
         return data
 
