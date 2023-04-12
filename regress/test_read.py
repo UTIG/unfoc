@@ -171,7 +171,7 @@ class TestClass1(RadBxdsBase):
         s = traces1.shape
         self.assertEqual(s[0], 10)
         self.assertTrue(s[1] == 3200 or s[1] == 3437)
-        
+
         traces2 = self.rread[0:10:2]
         s = traces2.shape
         self.assertEqual(s[0], 5)
@@ -181,26 +181,123 @@ class TestClass1(RadBxdsBase):
 
 
 
-    def test_slicing_2d(self):
-        """ Test for issue #4, Support 2D ndarray slicing syntax in RadBxds.getitem
+    def test_slicing_2d_a(self):
+        """
+        2d slicing with slices for both axes
+        Test for issue #4, Support 2D ndarray slicing syntax in RadBxds.getitem
         Test multiple input files but no need to read the full file
         """
+        # Check that behavior of this class is consistent with numpy
+        arr = np.zeros((100, 3200), dtype=np.int16)
+        traces0 = arr[0:10][:, 20:120]
+        expected_shape = (10, 100)
+        self.assertEqual(traces0.shape, expected_shape)
+
+        traces0 = arr[0:10, 20:120]
+        self.assertEqual(traces0.shape, expected_shape)
+
         # 1d way
         traces1 = self.rread[0:10][:, 20:120]
-        s = traces1.shape
-        self.assertEqual(s[0], 10)
-        self.assertTrue(s[1] == 100)
+        self.assertIsNotNone(traces1)
+        self.assertEqual(traces1.shape, expected_shape)
 
         # 2d way
         traces2 = self.rread[0:10, 20:120]
-        s = traces2.shape
-        self.assertEqual(s[0], 10)
-        self.assertTrue(s[1] == 100)
-
-        self.assertIsNotNone(traces1)
         self.assertIsNotNone(traces2)
+        self.assertEqual(traces2.shape, expected_shape)
+
         # Check that they come out to the same value
         np.testing.assert_equal(traces1, traces2)
+
+
+    def test_slicing_2d_b(self):
+        """
+        2d slicing with singleton first axis, slice second axis
+        Test for issue #4, Support 2D ndarray slicing syntax in RadBxds.getitem
+        Test multiple input files but no need to read the full file
+        """
+        # Check that behavior of this class is consistent with numpy
+        arr = np.zeros((100, 3200), dtype=np.int16)
+        traces0 = arr[5][20:120]
+        expected_shape = (100,)
+        self.assertEqual(traces0.shape, expected_shape)
+
+        traces0 = arr[5, 20:120]
+        self.assertEqual(traces0.shape, expected_shape)
+
+
+        # 1d way
+        traces1 = self.rread[5][20:120]
+        self.assertIsNotNone(traces1)
+        self.assertEqual(traces1.shape, expected_shape)
+
+        # 2d way
+        traces2 = self.rread[5, 20:120]
+        self.assertIsNotNone(traces2)
+        self.assertEqual(traces2.shape, expected_shape)
+        #self.assertEqual(s[1], 100)
+
+        # Check that they come out to the same value
+        np.testing.assert_equal(traces1, traces2)
+
+
+
+    def test_slicing_2d_c(self):
+        """ 2d slicing with slice first axis, singleton 2nd axis
+        Test for issue #4, Support 2D ndarray slicing syntax in RadBxds.getitem
+        Test multiple input files but no need to read the full file
+        """
+
+        # Check that behavior of this class is consistent with numpy
+        arr = np.zeros((100, 3200), dtype=np.int16)
+        traces0 = arr[5:20][:, 5]
+        expected_shape = (15,)
+        self.assertEqual(traces0.shape, expected_shape)
+
+        traces0 = arr[5:20, 5]
+        self.assertEqual(traces0.shape, expected_shape)
+
+
+        # 1d way
+        traces1 = self.rread[5:20][:, 5]
+        self.assertIsNotNone(traces1)
+        self.assertEqual(traces1.shape, expected_shape)
+
+        # 2d way
+        traces2 = self.rread[5:20, 5]
+        self.assertIsNotNone(traces2)
+        self.assertEqual(traces2.shape, expected_shape)
+
+        # Check that they come out to the same value
+        np.testing.assert_equal(traces1, traces2)
+
+    def test_slicing_2d_d(self):
+        """ 2d slicing with singleton dimensions on both axes
+        Test for issue #4, Support 2D ndarray slicing syntax in RadBxds.getitem
+        Test multiple input files but no need to read the full file
+        """
+
+
+        # Check that behavior of this class is consistent with numpy
+        arr = np.zeros((100, 3200), dtype=np.int16)
+        traces0 = arr[29][5]
+        expected_shape = (15, 1)
+        self.assertEqual(type(traces0), np.int16)
+
+        traces0 = arr[29, 5]
+        self.assertEqual(type(traces0), np.int16)
+
+        # 1d way
+        traces1 = self.rread[29][5]
+        self.assertEqual(type(traces1), np.int16)
+
+        # 2d way
+        traces2 = self.rread[29, 5]
+        self.assertEqual(type(traces2), np.int16)
+
+        # Check that they come out to the same value
+        np.testing.assert_equal(traces1, traces2)
+
 
     def test_slicing_2d_stride(self):
         """ Test for issue #4, Support 2D ndarray slicing syntax in RadBxds.getitem
