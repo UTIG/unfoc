@@ -446,7 +446,10 @@ def read_RADnhx_gen(input_filename, channel_specs):
             if header.choff == 0xff:
                 choff = 0
             else:
-                choff = 0x0f & header.choff
+                # 0x40 is the flag for along-track transmit polarization
+                # 0x0f is the channel offset field
+                # We want to ignore other bits.
+                choff = 0x4f & header.choff
 
             # reclen = SweepLength
             input_samples = header.nsamp
