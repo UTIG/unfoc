@@ -37,7 +37,7 @@ the format of the data from the binary contents of the file.
 
 """
 
-from collections import namedtuple
+from collections import namedtuple, defaultdict
 import itertools
 import logging
 import os
@@ -165,14 +165,43 @@ def get_radar_type(bxdsfile, nrecords=2000, stream=None):
         assert len(choffs) == 1
         return 'HiCARS2', chans
 
+def sync_radar_start(bxdsfile: str, nrecords:int=2000, stream=None):
+    """ Inspect a bxds file and figure out how many channels it has,
+    and what the first complete rseq number is.  This allows us to
+    make sure that all of the radar samples are synchronized between
+    channels 
 
+    Return value:
+        - The record number of this record in the bxds file
+        - The file position in the bxds file
+        - The rseq number
+    """
+    # mapping of rseq number and the file position of that record
+    rseq_to_fpos = defaultdict(list)
 
+    gen1 = index_RADnhx_bxds(bxdsfile, stream=stream, full_header=True)
+    gen2 = itertools.islice(gen1, 0, nrecords)
+    for ii, (fpos, _, header) in enumerate(gen2):
+        rseq_to_fpos[header.rseq].append((ii, fpos))
+        if len(rseq_to_fpos) > 10:
+            break
 
-def index_RADnhx_bxds(input_filename, stream=None):
+    # Number of channels is the max number of times we see an rseq value
+    nchan = max([len(fposlist) for fposlist in rseq_to_fpos.values()])
+    for rseq, fposlist in sorted(rseq_to_fpos.items()):
+        if len(fposlist) == nchan:
+            # Return the first rseq and first position where this was seen.
+            return *fposlist[0], rseq
+
+    raise ValueError("No radar records in %s" % bxdsfile)
+
+def index_RADnhx_bxds(input_filename, stream=None, full_header=False):
     # type: (str) -> Generator[tuple]
     """ Read the positions of packets within a RADnh3 and RADnh5 bxds file
     and return these as a generator
     Routines can then use this to seek to the correct location in a file.
+    # TODO: rework this function to always return the full header and make
+    all callers grab the member methods
     """
 
     if stream is None:
@@ -211,7 +240,10 @@ def index_RADnhx_bxds(input_filename, stream=None):
             input_samples = header.nsamp
             assert 0 < input_samples < 10000
 
-            yield fpos, headerlen, header.choff, header.nsamp #, ctdata)
+            if full_header: # want to make this the default behavior at some point
+                yield fpos, headerlen, header
+            else:
+                yield fpos, headerlen, header.choff, header.nsamp #, ctdata)
             # Skip the rest of this record without yielding any values
             fd.seek(4*input_samples, os.SEEK_CUR)
 
@@ -616,3 +648,5 @@ def read_1m_gen(bxdsfile, channel, samples_per_trace=3200):
 
     for ii, arr_trace in enumerate(radargram_in):
         yield Trace(channel=channel, data=arr_trace, ct=CT_t(tim=0, seq=ii))
+
+
