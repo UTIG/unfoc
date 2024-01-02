@@ -283,13 +283,10 @@ def read_RADnhx_gen(bxds_filename, channel, stream=None):
     # Filter for listed channel offset in radar record
     chfilter = (channel - 1) - choff1
 
-    try:
-        fd = open(bxds_filename, 'rb')
-        mmbxds = mmap.mmap(fd.fileno(), 0, access=mmap.ACCESS_READ)
-
+    with open(bxds_filename, 'rb') as fd: # for reading traces
         ctgen = gen_ct(bxds_filename)
-
-        for radinfo, ctinfo in zip(index_RADnhx_bxds_mmap_(bxds_filename, stream), ctgen):
+        radgen = index_RADnhx_bxds(bxds_filename, stream)
+        for radinfo, ctinfo in zip(radgen, ctgen):
             fpos, headerlen, rchoff, nsamp = radinfo
             if rchoff == 0xff:
                 rchoff = 0
@@ -303,17 +300,10 @@ def read_RADnhx_gen(bxds_filename, channel, stream=None):
                 continue
 
             i0 = fpos + headerlen + choff1 * nsamp * 2
-            try:
-                # np.copy is to address unfoc Issue #6: BufferError: cannot close exported pointers exist
-                # which occurs with numpy version 1.22.4 and later
-                trace1 = np.copy(np.frombuffer(mmbxds, dtype='>i2', offset=i0, count=nsamp))
-            except ValueError as e:
-                break # Not enough data
+            fd.seek(i0, os.SEEK_SET)
+            trace1 = np.fromfile(fd, dtype='>i2', count=nsamp) 
 
             yield Trace(channel, trace1, ctinfo)
-    finally:
-        mmbxds.close()
-        fd.close()
 
 
 class RadBxds:
