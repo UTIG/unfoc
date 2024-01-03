@@ -50,9 +50,9 @@ def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
         channel_specs = get_utig_channels(channels, radar=radartype, input_channels=data_channels)
     else:
         channel_specs = channels
-
+    delay = 0.01 if processes > 1 else 0.0 # cosmetically delay so channels output in same order
     unfoc_args = lambda p1cs: (outdir, infile, p1cs, output_samples, stackdepth, incodepth,
-                       blanking, bandpass, scale, output_phases, nmax)
+                       blanking, bandpass, scale, output_phases, nmax, (p1cs.chanout-1)*delay)
     gen_args = map(unfoc_args, channel_specs)
     if processes <= 1:
         for _ in map(unfoc_chan_, gen_args):
@@ -66,7 +66,7 @@ def unfoc_chan_(args):
     return unfoc_chan(*args)
 
 def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
-          blanking, bandpass, scale=20000, output_phases=False, nmax=0):
+          blanking, bandpass, scale=20000, output_phases=False, nmax=0, delay=0.):
 
     """ Generate one output channel of unfoc data
     outdir: output directory where data will be placed
@@ -82,7 +82,8 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
 
 
     """
-
+    if delay > 0:
+        time.sleep(delay)
     # Obtain reference chirp
     ref_chirp = dechirp.get_ref_chirp(bandpass, output_samples)
 
