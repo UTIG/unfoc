@@ -4,9 +4,6 @@
 """
 Unit testing of RADnh3 and RADnh5 bxds reader
 
-TODO: cull some of the testing to only be done on one shorter transect rather than running through the really long ones.
-(like indexing really only needs to be done on one transect)
-
 """
 
 import unittest
@@ -14,36 +11,45 @@ import sys
 import os
 import logging
 import itertools
+from pathlib import Path
+from typing import Tuple
+import tempfile
+import shutil
+import gzip
 
 import numpy as np
 
 #from test_unfoc1 import read_testlist, parse_fileinfo, UnfocBase
 
-cwd = os.path.dirname(__file__)
-unfoc_path = os.path.join(cwd, '..')
-sys.path.insert(1, os.path.abspath(unfoc_path))
+cwd = Path(__file__).parent
+unfoc_path = cwd / '..' / 'src'
+sys.path.insert(1, str(unfoc_path.absolute()))
 
-import unfoc.read as read
-import unfoc.parse_channels as pc
+import unfoc
+
+#import unfoc.read as read
+#import unfoc.parse_channels as pc
 
 #TESTLIST = os.path.join(cwd, 'test_lists/available_radnh_bxds.txt')
-TESTLIST = os.path.join(cwd, 'test_lists/tests_level1.txt')
+TESTLIST = cwd / 'test_lists' / 'tests_level1.txt'
 
 # List of tests for running just a single example of each type.
-TESTLIST0 = os.path.join(cwd, 'test_lists/tests_level0.txt')
+TESTLIST0 = cwd / 'test_lists' / 'tests_level0.txt'
+
+WAIS = Path(os.getenv('WAIS', '/disk/kea/WAIS'))
 
 
-
-
-def read_testlist(testlist):
-    with open(testlist, 'rt') as fin:
+def read_testlist(testlist: Path):
+    """ Yield file information from a test list """
+    with testlist.open('rt') as fin:
         for line in fin:
             filename = line.strip()
             if not filename or filename[0] == '#': # skip commented lines
                 continue
             yield parse_fileinfo(filename)
 
-def parse_fileinfo(filename):
+def parse_fileinfo(filename: str) -> Tuple[str,str,str]:
+    """ Split the pst, streamname, and whole filename """
     # line = /disk/kea/WAIS/orig/xlob/WSB/JKB2e/MAWG01c/RADnh3/bxds
     parts = filename.split('/')
     snm = parts[-2]
@@ -53,6 +59,7 @@ def parse_fileinfo(filename):
 
 class RadBxdsBase(unittest.TestCase):
     def check_input_exists(self, bxds_input):
+        """ Make sure inputs exist as precondition for running test """
         self.assertTrue(os.path.exists(bxds_input))
         self.assertGreater(os.path.getsize(bxds_input), 0)
 
@@ -74,22 +81,105 @@ class RadBxdsBase(unittest.TestCase):
             data_prev = data
         self.assertGreater(ii, 0)
 
+class TestFileFunctions(unittest.TestCase):
+    """ Check that the file information reading is as-expected """
+    def check_type_and_stream(self, pst:str, snm:str, radartype:str):
+        filename = WAIS / 'orig/xlob' / pst / snm / 'bxds'
+        restype = unfoc.get_radar_type(filename)
+        resstream = unfoc.get_radar_stream(filename)
+        assert restype[0] == radartype
+        assert resstream == snm
+    def test_type_mpol(self):
+        """ Check a multipol transect """
+        pst, snm, radartype = 'DOT/HVU0a/Y05a', 'RADnh5', 'MPOL'
+        self.check_type_and_stream(pst, snm, radartype)
+
+    def test_type_marfa(self):
+        """ Check a multipol transect """
+        pst, snm, radartype = 'DEV2/JKB2t/Y91a', 'RADnh5', 'MARFA'
+        self.check_type_and_stream(pst, snm, radartype)
+    def test_type_hicars(self):
+        """ Check a multipol transect """
+        pst, snm, radartype = 'AGAW/JKB2k/JEVANSb', 'RADnh3', 'HiCARS2'
+        self.check_type_and_stream(pst, snm, radartype)
+
 class TestParsers(RadBxdsBase):
     """ Test the functions and generators that parse the packet structure of the bxds file.
     Test these on a wide range of input stimulus """
-    def run_compare_gen_parsers(self, bxds_input):
+    def run_compare_gen_parsers(self, bxds_input, **kwargs):
         self.check_input_exists(bxds_input)
-        gen1 = read.index_RADnhx_bxds_mmap_(bxds_input)
-        gen2 = read.index_RADnhx_bxds(bxds_input)
+        gen1 = unfoc.index_RADnhx_bxds_mmap_(bxds_input, **kwargs)
+        gen2 = unfoc.index_RADnhx_bxds(bxds_input, **kwargs)
 
         for ii, (data1, data2) in enumerate(itertools.zip_longest(gen1, gen2)):
             self.assertEqual(data1, data2, msg="parse mismatch at record %d" % (ii,))
 
     def test_compare_gen_parsers(self):
         """ Check that indexers parse the bxds same """
-        for pst, snm, bxds_input in list(read_testlist(TESTLIST)):
+        for ii, (pst, snm, bxds_input) in enumerate(list(read_testlist(TESTLIST))):
             with self.subTest(pst=pst, snm=snm):
+                logging.debug("pst=%s snm=%s", pst, snm)
                 self.run_compare_gen_parsers(bxds_input)
+                if ii == 0:
+                    self.run_compare_gen_parsers(bxds_input, full_header=True)
+
+
+class TestGenCT(unittest.TestCase):
+    """ Hit specific input cases for genct """
+    def test_gzip(self):
+        """ Make sure we can read a gzip file alongside a gzip file """
+        for _, _, bxdsfile0 in read_testlist(TESTLIST):
+            with self.subTest(file=bxdsfile0):
+                bxdsfile = Path(bxdsfile0)
+                ctfile = bxdsfile.with_name('ct.gz')
+                if ctfile.exists():
+                    for _ in unfoc.gen_ct(bxdsfile):
+                        pass
+                else:
+                    # make a gzip and try it
+                    ctfile = ctfile.with_name('ct')
+                    with tempfile.TemporaryDirectory() as tempdir:
+                        ptemp = Path(tempdir)
+                        bxdsfile2 = ptemp / bxdsfile.name
+                        bxdsfile2.touch()
+                        gzip_text(ctfile, ptemp / 'ct.gz')
+                        for _ in unfoc.gen_ct(bxdsfil2):
+                            pass
+
+
+    def test_nongzip(self):
+        """ Make sure we can read a non-gzip file alongside a gzip file """
+        for _, _, bxdsfile0 in read_testlist(TESTLIST):
+            with self.subTest(file=bxdsfile0):
+                bxdsfile = Path(bxdsfile0)
+                ctfile = bxdsfile.with_name('ct')
+                if ctfile.exists():
+                    for _ in unfoc.gen_ct(bxdsfile):
+                        pass
+                else:
+                    # make a gzip and try it
+                    ctfile = ctfile.with_name('ct.gz')
+                    with tempfile.TemporaryDirectory() as tempdir:
+                        ptemp = Path(tempdir)
+                        bxdsfile2 = ptemp / bxdsfile.name
+                        bxdsfile2.touch()
+                        self.zcat_text(ctfile, ptemp / 'ct')
+                    for _ in unfoc.gen_ct(bxdsfile2):
+                        pass
+
+    def zcat_text(self, file_compressed: Path, file_plain: Path):
+        """ Read a gzipped file and write it to a non-gzipped file """
+        with gzip.open(file_compressed, 'rt') as fin, \
+             open(file_plain, 'wt') as fout:
+            for line in fin:
+                print(line, file=fout)
+
+    def gzip_text(self, file_plain: Path, file_compressed: Path):
+        """ Compress text to gzip format """
+        with open(file_plain, 'rt') as fin, \
+             gzip.open(file_compressed, 'wt') as fout:
+            for line in fin:
+                print(line, file=fout)
 
 
 class TestClass1(RadBxdsBase):
@@ -97,7 +187,7 @@ class TestClass1(RadBxdsBase):
     def setUp(self):
         channel = 1
         pst, snm, bxds_input = list(read_testlist(TESTLIST0))[0]
-        self.rread = read.RadBxds(bxds_input, channel=channel)
+        self.rread = unfoc.RadBxds(bxds_input, channel=channel)
 
     def test_indexing(self):
         """ Check that slicing works consistently with how numpy does it. """
@@ -122,7 +212,7 @@ class TestClass1(RadBxdsBase):
             rread[ntraces]
 
     def test_slicing1(self):
-        # Show that a slice comes out to the correct dimensions.
+        """ Show that a slice comes out to the correct dimensions. """
         traces1 = self.rread[0:10]
         self.assertEqual(traces1.shape[0], 10)
         self.assertTrue(traces1.shape[1] == 3200 or traces1.shape[1] == 3437)
@@ -142,8 +232,8 @@ class TestClass1(RadBxdsBase):
 
 
     def test_slicing_long(self):
-        # Slicing beyond the end of the radargram doesn't raise an error
-        # (This matches the behavior with lists and other sequences)
+        """ Slicing beyond the end of the radargram doesn't raise an error
+         (This matches the behavior with lists and other sequences) """
 
         ntraces = len(self.rread)
         expected_len = 10
@@ -166,7 +256,7 @@ class TestClass1(RadBxdsBase):
         self.assertEqual(traces1.shape[0], 0)
 
     def test_slicing_stride(self):
-        # Slicing with a stride/step
+        """ Slicing with a stride/step """
         traces1 = self.rread[0:10]
         s = traces1.shape
         self.assertEqual(s[0], 10)
@@ -335,14 +425,14 @@ class TestClass1(RadBxdsBase):
 class TestRADjh1Class(TestClass1):
     def setUp(self):
         channel = 1
-        testlist1 = os.path.join(cwd, 'test_lists/tests_radjh1.txt')
+        testlist1 = cwd / 'test_lists' / 'tests_radjh1.txt'
         pst, snm, bxds_input = list(read_testlist(testlist1))[0]
-        self.rread = read.RADjh1Bxds(bxds_input, channel=channel)
+        self.rread = unfoc.RADjh1Bxds(bxds_input, channel=channel)
 
 class TestRadBxds(RadBxdsBase):
     """ Run tests on many different bxdses """
     def test_index_generator1(self):
-        return self.run_index_generator(read.index_RADnhx_bxds_mmap_)
+        return self.run_index_generator(unfoc.index_RADnhx_bxds_mmap_)
 
     #@unittest.skip("Unneeded since we test equality later")
     #def test_index_generator2(self):
@@ -354,7 +444,7 @@ class TestRadBxds(RadBxdsBase):
                 with self.subTest(pst=pst, snm=snm, channel=channel):
                     self.check_input_exists(bxds_input)
                     trace_p = None
-                    for ii, trace in enumerate(read.read_RADnhx_gen(bxds_input, channel=channel)):
+                    for ii, trace in enumerate(unfoc.read_RADnhx_gen(bxds_input, channel=channel)):
                         self.assertEqual(channel, trace.channel)
                         self.assertEqual(len(trace.data.shape), 1)
                         self.assertGreaterEqual(trace.data.shape[0], 3200)
@@ -371,10 +461,10 @@ class TestRadBxds(RadBxdsBase):
         for pst, snm, bxds_input in list(read_testlist(TESTLIST0)):
             for channel in (1, 2):
                 with self.subTest(pst=pst, snm=snm, channel=channel):
-                    rread = read.RadBxds(bxds_input, channel=channel)
+                    rread = unfoc.RadBxds(bxds_input, channel=channel)
                     self.assertGreater(len(rread), 1) # number of records
 
-                    for ii, trace1 in enumerate(read.read_RADnhx_gen(bxds_input, channel=channel)):
+                    for ii, trace1 in enumerate(unfoc.read_RADnhx_gen(bxds_input, channel=channel)):
                         msg = "mismatch at rread[%d]" % (ii,)
                         trace2 = rread[ii]
                         self.assertEqual(trace1.data.shape, trace2.shape, msg=msg)
@@ -391,10 +481,10 @@ class TestRadBxds(RadBxdsBase):
 class TestClassEx1(RadBxdsBase):
     """ Test RadBxdsBase with two channels """
     def setUp(self):
-        p1cs = pc.get_utig_channels('LoResInco1', radar='MARFA')[0]
-        bxds_input = os.path.join(os.getenv('WAIS'), 'orig/xlob/DEV/JKB2t/Y49a/RADnh5/bxds')
-        pst, snm = 'DEV/JKB2t/Y49a', 'RADnh5'
-        self.rread = read.RadBxdsEx(bxds_input, channels=p1cs)
+        p1cs = unfoc.get_utig_channels('LoResInco1', radar='MARFA')[0]
+        pst, snm = 'DEV2/JKB2t/Y91a', 'RADnh5'
+        bxds_input = WAIS / 'orig/xlob' / pst / snm / 'bxds'
+        self.rread = unfoc.RadBxdsEx(bxds_input, channels=p1cs)
 
     def test_ex_index(self):
         # single index
@@ -418,27 +508,29 @@ class TestClassEx1(RadBxdsBase):
 class TestClassEx2(TestClassEx1):
     """ Test RadBxdsBase with one channel.  Same tests but different channel spec """
     def setUp(self):
-        p1cs = pc.get_utig_channels('LoResInco5', radar='MARFA')[0]
-        bxds_input = os.path.join(os.getenv('WAIS'), 'orig/xlob/DEV/JKB2t/Y49a/RADnh5/bxds')
-        pst, snm = 'DEV/JKB2t/Y49a', 'RADnh5'
-        self.rread = read.RadBxdsEx(bxds_input, channels=p1cs, dtype=np.double)
+        p1cs = unfoc.get_utig_channels('LoResInco5', radar='MARFA')[0]
+        pst, snm = 'DEV2/JKB2t/Y91a', 'RADnh5'
+        bxds_input = WAIS / 'orig/xlob' / pst / snm / 'bxds'
+        self.rread = unfoc.RadBxdsEx(bxds_input, channels=p1cs, dtype=np.double)
 
 
 class TestOneMeter(unittest.TestCase):
     def test_1m_a(self):
-        bxds_path = os.path.join(os.getenv('WAIS'), 'targ/xtra/KRT2/FOC/Best_Versions/S2_FIL/NIS4/IBH0e/X84b')
+        # pst = 'NIS4/IBH0e/X84b'
+        pst = 'D2DG/IBH0e/X30a'
+        bxds_path = WAIS / 'targ/xtra/KRT2/FOC/Best_Versions/S2_FIL' / pst
         for chan in (1, 2, 5, 6, 7, 8):
             with self.subTest(chan=chan):
                 bxds_input = os.path.join(bxds_path, 'bxds{:d}.i'.format(chan))
                 prevct = None
-                for t in read.read_1m_gen(bxds_input, chan):
+                for t in unfoc.read_1m_gen(bxds_input, chan):
                     if prevct is not None:
                         self.assertLess(prevct.seq, t.ct.seq)
                     prevct = t.ct
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+    #logging.basicConfig(level=logging.DEBUG, stream=sys.stdout)
     unittest.main()
 
 

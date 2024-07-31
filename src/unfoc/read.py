@@ -50,6 +50,7 @@ import numpy as np
 # Pik1ChannelSpec
 #import unfoc.parse_channels
 
+__version__ = '2.0.0'
 
 HEADER_FORMATS = {
     'RADnh3': {
@@ -80,7 +81,7 @@ class Trace:
 
 
 
-def get_radar_stream(filename):
+def get_radar_stream(filename:str):
     # type: (str) -> str
     # both RADnh3 and RADnh5 are the same first elements in header format
     # TODO: add support for detecting RADjh1
@@ -249,7 +250,7 @@ def index_RADnhx_bxds(input_filename, stream=None, full_header=False):
 
 
 
-def index_RADnhx_bxds_mmap_(input_filename, stream=None):
+def index_RADnhx_bxds_mmap_(input_filename, stream=None, full_header:bool=False):
     # type: (str) -> Generator[tuple]
     """ Read the positions of packets within a RADnh3 and RADnh5 bxds file
     and return these as a generator
@@ -293,7 +294,10 @@ def index_RADnhx_bxds_mmap_(input_filename, stream=None):
 
             assert 0 < header.nsamp < 10000
 
-            yield fpos, headerlen, header.choff, header.nsamp #, ctdata)
+            if full_header: # want to make this the default behavior at some point
+                yield fpos, headerlen, header
+            else:
+                yield fpos, headerlen, header.choff, header.nsamp #, ctdata)
             # Skip the rest of this record without yielding any values
             fpos_next += 4*header.nsamp
             fpos = fpos_next

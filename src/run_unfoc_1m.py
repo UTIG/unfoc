@@ -34,11 +34,8 @@ import argparse
 import logging
 import os
 import sys
-import time
 
-import mmap
-
-import unfoc.filter as filter
+import unfoc
 
 
 def main():
@@ -81,7 +78,7 @@ def main():
     logging.basicConfig(level=LOGLEVEL, stream=sys.stdout,
                     format='unfoc: [%(levelname)-5s] %(message)s')
 
-    filter.unfoc_1m_chan(args.outdir, args.input, args.channel, args.output_samples, args.stackdepth, args.incodepth,
+    unfoc.unfoc_1m_chan(args.outdir, args.input, args.channel, args.output_samples, args.stackdepth, args.incodepth,
           args.blanking, args.bandpass, scale=args.scale, output_phases=args.output_phases, nmax=args.nmax)
 
 

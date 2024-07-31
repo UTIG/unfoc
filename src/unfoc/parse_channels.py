@@ -25,11 +25,7 @@ Of course it ain't broken so why fix it?
 
 import logging
 import collections
-try:
-    import typing
-    from typing import List, Union
-except ImportError: #pragma: no cover
-    pass # Not installed on melt ...
+from typing import List, Union
 
 
 
@@ -95,7 +91,7 @@ UTIG_CHANNELS = {
 UTIG_CHANNELS['HERA'] = UTIG_CHANNELS['MARFA']
 UTIG_CHANNELS['MPOL'] = UTIG_CHANNELS['MARFA']
 
-def get_utig_channels(chanstr, radar='MARFA', input_channels=None):
+def get_utig_channels(chanstr:str, radar:str='MARFA', input_channels:List[int]=None)->PIK1ChannelSpec:
     """ Expects a comma-separated list of channels to produce. Case sensitive.
     Radar is a string describing the radar data format.
     Recommend to use unfoc.py autodetect function (get_radar_type)
@@ -106,7 +102,6 @@ def get_utig_channels(chanstr, radar='MARFA', input_channels=None):
     Note that input_channels and Pik1ChannelSpec both use 1-based indexing.
 
     """
-    # type: (str) -> List[PIK1ChannelSpec]
     list_config = [] # type: List[PIK1ChannelSpec]
     assert radar in UTIG_CHANNELS
     for name in chanstr.split(','):

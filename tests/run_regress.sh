@@ -28,7 +28,7 @@ rm -rf $OUTDIR
 
 COVFLAGS="-a"
 
-$COV run ../unfoc/parse_channels.py
+$COV run ../src/unfoc/parse_channels.py
 echo "Done parse_channel"
 # Outputs channels 1 and 2 unmodified.
 HICARS2_CHANNELS="[1,1,1,0,0;2,2,1,0,0]"
@@ -66,28 +66,28 @@ echo "${S0}: Running tests"
 #test_HiCARS2
 
 # Run a short section for coverage and no blanking
-$COV run $COVFLAGS ../run_unfoc.py \
+$COV run $COVFLAGS ../src/run_unfoc.py \
     -i $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/bxds \
     --outdir $OUTDIR/MBL/JKB2h/Y90a/RADnh3 \
     --channels LoResInco1,LoResInco2 --output_samples 3200 \
     --stackdepth 10 --incodepth 5  --scale 20000 --nmax 100
 
 # Run a short section for coverage and no blanking
-$COV run $COVFLAGS ../run_unfoc.py \
+$COV run $COVFLAGS ../src/run_unfoc.py \
     -i $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/bxds \
     --outdir $OUTDIR/MBL/JKB2h/Y90a/RADnh3 \
     --channels LoResInco1,LoResInco2 --output_samples 3200 \
     --stackdepth 10 --incodepth 5  --scale 20000 --blanking -200 --nmax 100
 
 # Run the same section with blanking from the end
-$COV run $COVFLAGS ../run_unfoc.py \
+$COV run $COVFLAGS ../src/run_unfoc.py \
     -i $WAIS/orig/xlob/MBL/JKB2h/Y90a/RADnh3/bxds \
     --outdir $OUTDIR/MBL/JKB2h/Y90a/RADnh3 \
     --channels LoResInco1,LoResInco2 --output_samples 3200 --output_phases \
     --stackdepth 10 --incodepth 5  --scale 20000  --blanking 200 $UNFOCFLAGS
 
 # test_MARFA
-$COV run $COVFLAGS ../run_unfoc.py \
+$COV run $COVFLAGS ../src/run_unfoc.py \
     -i $WAIS/orig/xlob/MBL/MKB2l/Y76a/RADnh3/bxds \
     --outdir $OUTDIR/MBL/MKB2l/Y76a/RADnh3 \
     --channels LoResInco2  --output_samples 3200 --output_phases --bandpass \
@@ -95,7 +95,7 @@ $COV run $COVFLAGS ../run_unfoc.py \
 
 
 # Read a RADnh5 from GCX (HiCARS2)
-$COV run $COVFLAGS ../run_unfoc.py \
+$COV run $COVFLAGS ../src/run_unfoc.py \
     -i $WAIS/orig/xlob/ASB1/GCX0e/R40a/RADnh5/bxds \
     --outdir $OUTDIR/ASB1/GCX0e/R40a/RADnh5 \
     --channels LoResInco1,LoResInco2  --output_samples 3200 --output_phases --bandpass \
@@ -103,7 +103,7 @@ $COV run $COVFLAGS ../run_unfoc.py \
 
 
 # Read a RADnh5 from JKB (MARFA)
-$COV run $COVFLAGS ../run_unfoc.py \
+$COV run $COVFLAGS ../src/run_unfoc.py \
     -i $WAIS/orig/xlob/ASB1/JKB2s/R06a/RADnh5/bxds \
     --outdir $OUTDIR/ASB1/JKB2s/R06a/RADnh5 \
     --channels  ${MARFA_CHANNELS}   --output_samples 3200 --output_phases --bandpass \
@@ -113,7 +113,7 @@ $COV run $COVFLAGS ../run_unfoc.py \
 # TODO: use a shortened bxds file
 
 # Use --channels flag
-$COV run $COVFLAGS ../run_unfoc.py \
+$COV run $COVFLAGS ../src/run_unfoc.py \
     -i $WAIS/orig/xlob/THW/PBA0a/X66a/RADnh5/bxds \
     --outdir $OUTDIR/unfoc1_THW_PBA0a_X66a_a \
     --channels LoResInco1,LoResInco2,LoResInco3,LoResInco4,LoResInco5,LoResInco6,LoResInco7,LoResInco8 \
@@ -121,7 +121,7 @@ $COV run $COVFLAGS ../run_unfoc.py \
     --incodepth 10 --scale 20000 --blanking 200
 
 # Use --channels flag with just channels 7,8
-$COV run $COVFLAGS ../run_unfoc.py \
+$COV run $COVFLAGS ../src/run_unfoc.py \
     -i $WAIS/orig/xlob/THW/PBA0a/X66a/RADnh5/bxds \
     --outdir $OUTDIR/unfoc1_THW_PBA0a_X66a_b \
     --channels LoResInco7,LoResInco8 \

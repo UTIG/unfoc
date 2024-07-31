@@ -1,0 +1,56 @@
+[project]
+name = "utig-unfoc"
+dynamic = ["version"]
+authors = [
+  { name="Gregory Ng" },
+]
+maintainers = [
+  { name="Gregory Ng" },
+]
+
+description = "UTIG Unfocused Radar Processor"
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Development Status :: 4 - Beta",
+
+    "Intended Audience :: Developers",
+
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    'numpy>=1.19.4',
+    'scipy>=1.5.4',
+]
+
+[project.urls]
+Homepage = "https://github.com/UTIG/unfoc"
+Issues = "https://github.com/UTIG/unfoc/issues"
+
+[project.scripts]
+run_unfoc = "run_unfoc:main"
+run_unfoc_1m = "run_unfoc_1m:main"
+
+[tool.setuptools]
+include-package-data = true
+
+#[tool.setuptools.packages.find]
+#include = ["unfoc/*"]
+#namespaces = false
+
+[tool.setuptools.dynamic]
+version = {attr = "unfoc.read.__version__"}
+
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+

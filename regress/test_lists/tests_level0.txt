@@ -1,7 +1,0 @@
-# RADnh3
-/disk/kea/WAIS/orig/xlob/ICP3/JKB2d/F56T01c/RADnh3/bxds
-#/disk/kea/WAIS/orig/xlob/AGAW/JKB2k/JEVANSb/RADnh3/bxds
-#/disk/kea/WAIS/orig/xlob/ICP4/JKB2g/F19T03a/RADnh3/bxds
-# TODO: RADnh3 MARFA?
-# RADnh5 MARFA
-/disk/kea/WAIS/orig/xlob/DEV/JKB2t/Y49a/RADnh5/bxds

@@ -5,3 +5,5 @@ MagLoResInco*
 .coverage.*
 test_lists/available*.txt
 covdata
+dist/
+*.egg-info/
