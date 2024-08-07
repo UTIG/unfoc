@@ -51,20 +51,64 @@ def denoise_burst(tracegen, median_size:Tuple[int,int],
     for trace in tracegen:
         # Iterate through kernels and find location matches
         detection = np.zeros_like(trace, dtype=int)
+        # TODO: refactor this to allow all of the median filters
+        # to be done at once.  This should be more efficient since
+        # the setup for the median_filter function only needs to be
+        # called once for the entire 3-dimensional array
         for kern, detect_threshold in zip(kernels, detect_thresholds):
             match = match_burst_trace(trace, kern, median_size)
             detection += (match >= detect_threshold)
 
         pulse_rois = list(detected_pulses(detection))
-        if not pulse_rois: # if anything detected
+        if not pulse_rois: # if nothing detected
             yield trace
             continue
         # Silence burst noise
         trace_out = np.copy(trace)
-        for roi in detected_pulses(detection)
+        for roi in pulse_rois:
             silenced = silence_burst(trace, roi)
             trace_out[roi[0]:roi[1]] = silenced
         yield trace_out
+
+def detected_pulses(detection:np.array, gap:int=14):
+    """ Given a detection array, return a sequence of
+    contiguous intervals
+
+    detection is an array of integers where any nonzero
+    value is considered a detection.
+
+    gap is the minimum gap in detections to trigger
+    a noncontiguous region.
+
+    ROIs will be expanded by gap//2, up to the
+    min/max dimensions of the detection array.
+    """
+    start_idx = None # first detection in this group
+    prev_idx = None # previous detection index
+    for ii, v in enumerate(detection):
+        if v: # detected
+            if start_idx is None: # we are not in a detection region
+                start_idx, prev_idx = ii, ii
+            else: # we are in a detection, continue
+                prev_idx = ii
+        else: # not detected
+            if start_idx is not None:
+                if ii - prev_idx >= gap:
+                    roi = (start_idx, prev_idx+1) # half-open interval
+                    roi_e_start = max(0, roi[0]-gap//2)
+                    roi_e_end = min(len(detection), roi[1]+gap//2)
+                    yield roi_e_start, roi_e_end # return expanded interval
+                    # Reset state
+                    start_idx, prev_idx = None, None
+
+    if start_idx is not None: # Open interval hit the end, return
+        roi = (start_idx, prev_idx+1) # half-open interval
+        roi_e_start = max(0, roi[0]-gap//2)
+        roi_e_end = min(len(detection), roi[1]+gap//2)
+        yield roi_e_start, roi_e_end # return expanded interval
+        # Reset state
+        start_idx, prev_idx = None, None
+
 
 def silence_burst(trace:np.array, roi:Tuple[int,int])->np.array:
     """ Silence the burst by taking the ends and filling them toward
