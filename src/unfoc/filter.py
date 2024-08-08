@@ -21,10 +21,11 @@ import mmap
 
 import numpy as np
 
-from unfoc.parse_channels import get_utig_channels, PIK1ChannelSpec
+from unfoc.parse_channels import get_utig_channels, PIK1ChannelSpec, burstnoise6
 from unfoc.write import PIK1Output, IncoherentTrace
 import unfoc.dechirp as dechirp
 import unfoc.read as read
+from .burst_noise import denoise_burst
 
 
 def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
@@ -53,7 +54,8 @@ def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
     delay = 0.01 if processes > 1 else 0.0 # cosmetically delay so channels output in same order
     unfoc_args = lambda p1cs: (outdir, infile, p1cs, output_samples, stackdepth, incodepth,
                        blanking, bandpass, scale, output_phases, nmax, (p1cs.chanout-1)*delay)
-    gen_args = map(unfoc_args, channel_specs)
+    channel_specs1 = map(enable_burstnoise, channel_specs)
+    gen_args = map(unfoc_args, channel_specs1)
     if processes <= 1:
         for _ in map(unfoc_chan_, gen_args):
             pass
@@ -66,7 +68,8 @@ def unfoc_chan_(args):
     return unfoc_chan(*args)
 
 def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
-          blanking, bandpass, scale=20000, output_phases=False, nmax=0, delay=0.):
+          blanking, bandpass, scale=20000, output_phases=False, nmax=0, delay=0.,
+          burst_noise=None):
 
     """ Generate one output channel of unfoc data
     outdir: output directory where data will be placed
@@ -79,7 +82,8 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
     scale: output magnitude scaling factor
     output_phases: if true, also output phase data
     nmax: max number of output samples to prcess, then quit (usually for testing).
-
+    burst_noise: 
+        parameters for burst noise correction
 
     """
     if delay > 0:
@@ -137,6 +141,17 @@ def unfoc_1m_chan(outdir, infile, chanout, output_samples, stackdepth, incodepth
     return unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
                       blanking, bandpass, scale, output_phases, nmax)
 
+
+def enable_burstnoise(p1cs: PIK1ChannelSpec):
+    """ Look at the channel numbers and enable burst noise suppression
+    as required for input channels 2 and 4 (high gain left and high gain right) """
+    if p1cs.chan0in in (2, 4):
+        logging.warning("%r adding burstnoise6", p1cs)
+        p1cs = p1cs._replace(burstnoise_chan0=burstnoise6)
+    if p1cs.chan1in in (2, 4):
+        logging.warning("%r adding burstnoise6", p1cs)
+        p1cs = p1cs._replace(burstnoise_chan1=burstnoise6)
+    return p1cs
 
 def chunks(iterable, size=10, incomplete=False):
     # https://stackoverflow.com/questions/24527006/\
@@ -253,15 +268,21 @@ def setup_bxds_reader(bxdsfile, channel_specs):
         # sum channels
 
         # Read traces from first channel of a bxds file
-        channel_gen1 = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan0in)
+        channel_gen0 = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan0in)
+        if channel_specs.burstnoise_chan0 is not None:
+            channel_gen0 = denoise_burst(channel_gen0, **channel_specs.burstnoise_chan0)
         # Read traces from another channel of a bxds file
-        channel_gen2 = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan1in)
+        channel_gen1 = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan1in)
+        if channel_specs.burstnoise_chan1 is not None:
+            channel_gen1 = denoise_burst(channel_gen1, **channel_specs.burstnoise_chan1)
         # Combine two channels into one, and rewrite the output channel number
-        reader_gen = map(sum_traces, channel_gen1, channel_gen2)
+        reader_gen = map(sum_traces, channel_gen0, channel_gen1)
     else:
         # If we're only doing one channel, it better be chan0
-        assert channel_specs.scalef0 == 1
+        assert channel_specs.scalef0 == 1, "If using one channel, use chan0"
         reader_gen = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan0in)
+        if channel_specs.burstnoise_chan0 is not None:
+            reader_gen = denoise_burst(reader_gen, **channel_specs.burstnoise_chan0)
 
     return reader_gen
 

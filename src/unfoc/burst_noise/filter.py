@@ -3,17 +3,22 @@
 """
 
 from typing import Tuple, List
+import logging
+from pathlib import Path
 
 import numpy as np
 from scipy.ndimage import median_filter
-from scipy.signal import convolve
+from scipy.signal import convolve, butter, filtfilt
+
+from ..read import Trace
+import matplotlib.pyplot as plt
 
 def denoise_burst(tracegen, median_size:Tuple[int,int], 
                   burst_widths: List[float], detect_thresholds:List[float]):
     """ Return a generator that reduces burst noise in a series of traces
     Parameters:
         tracegen - 
-        a generator that provides traces of real-valued zero-mean amplitude
+        a generator that provides Trace objects of real-valued zero-mean amplitude
         data (such as from a bxds file).  These can be 16-bit integer data
 
         median_size
@@ -44,11 +49,16 @@ def denoise_burst(tracegen, median_size:Tuple[int,int],
     assert len(burst_widths) == len(detect_thresholds), \
            "Number of burst widths and detection thresholds must match"
 
-    # Make burst noise templates for matching
-    kernels = [make_pulse_kernel(nsamples, burst_width)
-               for burst_width in burst_widths]
-
-    for trace in tracegen:
+    if False:
+        # Make burst noise templates for matching
+        kernels = [make_pulse_kernel(burst_width, nsamples=None, amplitude=1000.)
+                   for burst_width in burst_widths]
+    else:
+        kernels = [load_pulse_kernel()]
+    numpulses = 0
+    logging.info("detect thresholds: %r", detect_thresholds)
+    for ii, traceobj in enumerate(tracegen):
+        trace = traceobj.data
         # Iterate through kernels and find location matches
         detection = np.zeros_like(trace, dtype=int)
         # TODO: refactor this to allow all of the median filters
@@ -57,18 +67,34 @@ def denoise_burst(tracegen, median_size:Tuple[int,int],
         # called once for the entire 3-dimensional array
         for kern, detect_threshold in zip(kernels, detect_thresholds):
             match = match_burst_trace(trace, kern, median_size)
+            assert match.shape == detection.shape, "unexpected match shape"
             detection += (match >= detect_threshold)
+            
 
         pulse_rois = list(detected_pulses(detection))
         if not pulse_rois: # if nothing detected
-            yield trace
+            yield traceobj
             continue
+        numpulses += len(pulse_rois)
         # Silence burst noise
         trace_out = np.copy(trace)
         for roi in pulse_rois:
+            #logging.warning("trace %d roi=%r", ii, roi)
             silenced = silence_burst(trace, roi)
             trace_out[roi[0]:roi[1]] = silenced
-        yield trace_out
+        traceobj2 = Trace(traceobj.channel, trace_out, traceobj.ct)
+        yield traceobj2
+        logging.warning("trace %d Number of Pulse ROIs: %d", ii, numpulses)
+        if ii == 932:
+            plt.clf()
+            plt.plot(lp(trace), alpha=0.5, label='orig')
+            plt.plot(lp(trace_out), alpha=0.5, label='silenced')
+            plt.plot(lp(trace) - lp(trace_out), label='diff')
+            plt.grid()
+            plt.legend()
+            plt.show()
+
+    logging.warning("Number of Pulse ROIs: %d", numpulses)
 
 def detected_pulses(detection:np.array, gap:int=14):
     """ Given a detection array, return a sequence of
@@ -82,6 +108,7 @@ def detected_pulses(detection:np.array, gap:int=14):
 
     ROIs will be expanded by gap//2, up to the
     min/max dimensions of the detection array.
+    TODO: use median filter and make this shorter/quicker
     """
     start_idx = None # first detection in this group
     prev_idx = None # previous detection index
@@ -92,22 +119,21 @@ def detected_pulses(detection:np.array, gap:int=14):
             else: # we are in a detection, continue
                 prev_idx = ii
         else: # not detected
-            if start_idx is not None:
-                if ii - prev_idx >= gap:
-                    roi = (start_idx, prev_idx+1) # half-open interval
-                    roi_e_start = max(0, roi[0]-gap//2)
-                    roi_e_end = min(len(detection), roi[1]+gap//2)
-                    yield roi_e_start, roi_e_end # return expanded interval
-                    # Reset state
-                    start_idx, prev_idx = None, None
+            if start_idx is not None and ii - prev_idx >= gap:
+                yield expand_roi(start_idx, prev_idx+1, gap, detection)
+                start_idx, prev_idx = None, None # Reset state
 
     if start_idx is not None: # Open interval hit the end, return
-        roi = (start_idx, prev_idx+1) # half-open interval
-        roi_e_start = max(0, roi[0]-gap//2)
-        roi_e_end = min(len(detection), roi[1]+gap//2)
-        yield roi_e_start, roi_e_end # return expanded interval
-        # Reset state
-        start_idx, prev_idx = None, None
+        yield expand_roi(start_idx, prev_idx+1, gap, detection)
+
+def expand_roi(idx0:int, idx1:int, gap:int, detection:np.array)->Tuple[int,int]:
+    """ idx0 is the start index,
+    idx1 is the index of the first non-detection
+    (i.e., a half-open interval)
+    """
+    roi_e_start = max(0, idx0-gap//2)
+    roi_e_end = min(len(detection), idx1+gap//2)
+    return roi_e_start, roi_e_end
 
 
 def silence_burst(trace:np.array, roi:Tuple[int,int])->np.array:
@@ -123,14 +149,29 @@ def silence_burst(trace:np.array, roi:Tuple[int,int])->np.array:
     arr[mid:] = trace[roi[1]-1]
     return arr
 
-def make_pulse_kernel(nsamples:int, width:float, amplitude:float=1.) -> np.array:
+def make_pulse_kernel(width:float,amplitude:float=1., nsamples:int=None) -> np.array:
     """ construct a sinc pulse kernel of length nsamples, with a
-    pulse width of 'width' samples, and a peak amplitude of 1.0 """
+    pulse width of 'width' samples, and a peak amplitude of 1.0 
+    Recommend making the kernel an odd number of samples for symmetry
+    """
     assert width > 0, "Pulse width must be positive"
-    # Flip the kernel since we want to do a correlation, but these are symmetric anyways
-    # TODO: actually implement this
-    kernel = np.flip(np.ones((nsamples,)))
+    if nsamples is None: # try to make the number of samples odd
+        nsamples = int(np.ceil(width*2.25))
+        if nsamples % 2 == 0:
+            nsamples += 1
+
+    # Generate a sinc pulse with width 'width' samples in a kernel of nsamples samples
+    w = nsamples / width
+    x = np.linspace(-w, w, num=nsamples)
+    kernel = np.sinc(x)*amplitude
+
     return kernel
+
+def load_pulse_kernel():
+    filename = Path(__file__).parent / 'burst_noise_PPT_MKB2o_Y01e_trace932_samp2985.npz'
+    kern = np.load(filename)['burst_noise_sample']
+    return kern#return np.flip(kern)
+    
 
 
 def match_burst_trace(trace:np.array, burst_kernel:np.array, median_size:Tuple[int,int])->np.array:
@@ -138,11 +179,23 @@ def match_burst_trace(trace:np.array, burst_kernel:np.array, median_size:Tuple[i
     and return the convolution """
 
     # dd = filtfilt(B,A,double(data{2}(:,:,1)) .* exp(j*2*pi*-10/50*(0:Nt-1).'));
+    # TODO: move butterworth filter creation etc, out
+    B, A = butter(2, 11/25)
+    Nt = len(trace)
+    dd = filtfilt(B, A, trace.astype(float) * np.exp(1j*2*np.pi*-10/50*np.arange(Nt)))
 
     # ee = ifft(fft(dd) .* cc);
-    trace_ee = convolve(trace, burst_kernel, mode='same', method='auto')
-    # nn = lp(medfilt2(abs(ee).^2,[3 51],'symmetric'));
-    trace_nn = median_filter(abs(trace_ee), size=median_size, mode='symmetric')
-    # tt = lp(ee) - nn
-    return lp(trace_nn) - lp(trace_ee)
+    trace_ee = np.atleast_2d(convolve(dd, burst_kernel, mode='same', method='auto'))
 
+    # nn = lp(medfilt2(abs(ee).^2,[3 51],'symmetric'));
+    trace_nn = median_filter(abs(trace_ee), size=median_size, mode='constant')
+    # tt = lp(ee) - nn
+    tt = lp(trace_ee) - lp(trace_nn) #abs(lp(trace_nn) - lp(trace_ee))
+    tt = tt[0,:]
+    assert tt.shape == trace.shape, "Input shape doesn't match output: input.shape=%r tt.shape=%r" % (trace.shape, tt.shape)
+    return tt
+
+
+def lp(trace:np.array):
+    """ Log power of an amplitude trace """
+    return 20*np.log10(abs(trace))

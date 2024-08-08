@@ -43,8 +43,16 @@ from typing import List, Union
 # A namedtuple is also immutable so you can't accidentally change the data
 PIK1ChannelSpec = collections.namedtuple("PIK1ChannelSpec",
                                          ['chanout','chan0in','scalef0',
-                                          'chan1in','scalef1']);
+                                          'chan1in','scalef1', 'burstnoise_chan0', 'burstnoise_chan1'],
+                  defaults=(None,None) );
 
+
+# Default parameters for burst noise on channel 6
+burstnoise6 = {
+    'median_size': (1, 51), # currently only supports 1d median
+    'burst_widths': [15.],
+    'detect_thresholds': [25.],
+}
 # A quick reference for how to set up pik1 to make the UTIG data correctly
 # See document multipol_data_format.pdf for more details
 
