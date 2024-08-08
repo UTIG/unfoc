@@ -85,7 +85,7 @@ def denoise_burst(tracegen, median_size:Tuple[int,int],
         traceobj2 = Trace(traceobj.channel, trace_out, traceobj.ct)
         yield traceobj2
         logging.warning("trace %d Number of Pulse ROIs: %d", ii, numpulses)
-        if ii == 932:
+        if False and ii == 932:
             plt.clf()
             plt.plot(lp(trace), alpha=0.5, label='orig')
             plt.plot(lp(trace_out), alpha=0.5, label='silenced')
