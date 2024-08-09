@@ -34,42 +34,50 @@ import argparse
 import logging
 import os
 import sys
+from pathlib import Path
 
 import unfoc
 
+p1 = Path(__file__).parent.absolute()
+sys.path.insert(1, str(p1))
+from run_unfoc import setup_common_args
 
 def main():
     # type: () -> None
     parser = argparse.ArgumentParser(description='Pulse compress 1-m resampled radar data with unfocused processor')
 
-    parser.add_argument('-o', '--outdir', required=True,
-                        help='directory for output files')
-    parser.add_argument('-i', '--input', required=True,
-                        help='filename of 2-byte radar file (bxdsN.i)')
+    setup_common_args(parser)
+
+    #parser.add_argument('-o', '--outdir', required=True,
+    #                    help='directory for output files')
+    #parser.add_argument('-i', '--input', required=True,
+    #                    help='filename of 2-byte radar file (bxdsN.i)')
 
     parser.add_argument('-c', '--channel', required=True, type=int, help="Channel number")
 
-    parser.add_argument('--output_samples', default=3200, type=int,
-                        help='Length of each output sweep (in samples)')
+    #parser.add_argument('--output_samples', default=3200, type=int,
+    #                    help='Length of each output sweep (in samples)')
 
-    parser.add_argument('--stackdepth', default=1, type=int,
-                        help='coherent stacking depth')
-    parser.add_argument('--incodepth', default=1, type=int,
-                        help='incoherent stacking depth')
+    #parser.add_argument('--stackdepth', default=1, type=int,
+    #                    help='coherent stacking depth')
+    #parser.add_argument('--incodepth', default=1, type=int,
+    #                    help='incoherent stacking depth')
 
-    parser.add_argument('--scale', type=int, default=20000,
-                        help='Output scale default is 1000*dB')
-    parser.add_argument('--blanking', type=int, default=50,
-                        help='Samples at the top of the record to blank out. Negative number blanks bottom')
+    #parser.add_argument('--scale', type=int, default=20000,
+    #                    help='Output scale default is 1000*dB')
+    #parser.add_argument('--blanking', type=int, default=50,
+    #                    help='Samples at the top of the record to blank out. Negative number blanks bottom')
 
-    parser.add_argument('--output_phases', action='store_true',
-                        help="output phase, in addition to magnitude")
-    parser.add_argument('--bandpass', action='store_true',
-                        help='Process bandpass-sampled data (for use with MARFA data, not for use with legacy HiCARS/HiCARS2 data). Disable cinterp and flips the chirp.')
-    parser.add_argument('--nmax', default=0, type=int,
-                        help="Maximum number of stacks to output (usually used for testing)")
-    parser.add_argument('--debug', action='store_true',
-                        help='Print debugging messages')
+    #parser.add_argument('--output_phases', action='store_true',
+    #                    help="output phase, in addition to magnitude")
+    #parser.add_argument('--bandpass', action='store_true',
+    #                    help='Process bandpass-sampled data (for use with MARFA data, not for use with legacy HiCARS/HiCARS2 data). Disable cinterp and flips the chirp.')
+    #parser.add_argument('--denoise', required=False, default=None, choices=('burst'),
+    #                    help='Enable burst denoising filter for high gain channels')
+    #parser.add_argument('--nmax', default=0, type=int,
+    #                    help="Maximum number of stacks to output (usually used for testing)")
+    #parser.add_argument('--debug', action='store_true',
+    #                    help='Print debugging messages')
 
     args = parser.parse_args()
 

@@ -8,10 +8,10 @@ from pathlib import Path
 
 import numpy as np
 from scipy.ndimage import median_filter
-from scipy.signal import convolve, butter, filtfilt
+from scipy.signal import convolve, butter, filtfilt, medfilt2d, medfilt
+#import matplotlib.pyplot as plt
 
 from ..read import Trace
-import matplotlib.pyplot as plt
 
 def denoise_burst(tracegen, median_size:Tuple[int,int], 
                   burst_widths: List[float], detect_thresholds:List[float]):
@@ -56,20 +56,32 @@ def denoise_burst(tracegen, median_size:Tuple[int,int],
     else:
         kernels = [load_pulse_kernel()]
     numpulses = 0
+    lpf = butter(2, 11/25) # downconversion lowpass filter
+    expon = None # downconversion complex exponential
     logging.info("detect thresholds: %r", detect_thresholds)
     for ii, traceobj in enumerate(tracegen):
         trace = traceobj.data
         # Iterate through kernels and find location matches
-        detection = np.zeros_like(trace, dtype=int)
+        detection = np.zeros_like(trace, dtype=np.int8)
+
+        # trace downconverted to baseband
+        if expon is None:
+            Nt = len(trace)
+            # dd = filtfilt(B,A,double(data{2}(:,:,1)) .* exp(j*2*pi*-10/50*(0:Nt-1).'));
+            expon = np.exp(1j*2*np.pi*-10/50*np.arange(Nt))
+        trace_bb = filtfilt(*lpf, trace.astype(float) * expon)
+
         # TODO: refactor this to allow all of the median filters
         # to be done at once.  This should be more efficient since
         # the setup for the median_filter function only needs to be
         # called once for the entire 3-dimensional array
         for kern, detect_threshold in zip(kernels, detect_thresholds):
-            match = match_burst_trace(trace, kern, median_size)
+        
+            match = match_burst_trace(trace_bb, kern, median_size)
             assert match.shape == detection.shape, "unexpected match shape"
-            detection += (match >= detect_threshold)
-            
+            #detection += (match >= detect_threshold)
+            np.maximum(detection, (match >= detect_threshold), out=detection)
+
 
         pulse_rois = list(detected_pulses(detection))
         if not pulse_rois: # if nothing detected
@@ -79,13 +91,12 @@ def denoise_burst(tracegen, median_size:Tuple[int,int],
         # Silence burst noise
         trace_out = np.copy(trace)
         for roi in pulse_rois:
-            #logging.warning("trace %d roi=%r", ii, roi)
-            silenced = silence_burst(trace, roi)
-            trace_out[roi[0]:roi[1]] = silenced
-        traceobj2 = Trace(traceobj.channel, trace_out, traceobj.ct)
-        yield traceobj2
-        logging.warning("trace %d Number of Pulse ROIs: %d", ii, numpulses)
-        if False and ii == 932:
+            trace_out[roi[0]:roi[1]] = silence_burst(trace, roi)
+        yield Trace(traceobj.channel, trace_out, traceobj.ct)
+
+        #logging.warning("trace %d Number of Pulse ROIs: %d", ii, numpulses)
+        """ debugging plots
+        if ii == 932:
             plt.clf()
             plt.plot(lp(trace), alpha=0.5, label='orig')
             plt.plot(lp(trace_out), alpha=0.5, label='silenced')
@@ -93,8 +104,9 @@ def denoise_burst(tracegen, median_size:Tuple[int,int],
             plt.grid()
             plt.legend()
             plt.show()
+        """
 
-    logging.warning("Number of Pulse ROIs: %d", numpulses)
+    #logging.debug("Number of Pulse ROIs: %d", numpulses)
 
 def detected_pulses(detection:np.array, gap:int=14):
     """ Given a detection array, return a sequence of
@@ -114,10 +126,9 @@ def detected_pulses(detection:np.array, gap:int=14):
     prev_idx = None # previous detection index
     for ii, v in enumerate(detection):
         if v: # detected
+            prev_idx = ii # regardless of being in detection, set prev
             if start_idx is None: # we are not in a detection region
-                start_idx, prev_idx = ii, ii
-            else: # we are in a detection, continue
-                prev_idx = ii
+                start_idx = ii
         else: # not detected
             if start_idx is not None and ii - prev_idx >= gap:
                 yield expand_roi(start_idx, prev_idx+1, gap, detection)
@@ -155,44 +166,44 @@ def make_pulse_kernel(width:float,amplitude:float=1., nsamples:int=None) -> np.a
     Recommend making the kernel an odd number of samples for symmetry
     """
     assert width > 0, "Pulse width must be positive"
-    if nsamples is None: # try to make the number of samples odd
+    if nsamples is None:
         nsamples = int(np.ceil(width*2.25))
-        if nsamples % 2 == 0:
-            nsamples += 1
+        nsamples += ((nsamples+1) % 2) # enforce odd number of samples
 
     # Generate a sinc pulse with width 'width' samples in a kernel of nsamples samples
     w = nsamples / width
     x = np.linspace(-w, w, num=nsamples)
     kernel = np.sinc(x)*amplitude
-
     return kernel
 
 def load_pulse_kernel():
     filename = Path(__file__).parent / 'burst_noise_PPT_MKB2o_Y01e_trace932_samp2985.npz'
     kern = np.load(filename)['burst_noise_sample']
     return kern#return np.flip(kern)
-    
 
 
-def match_burst_trace(trace:np.array, burst_kernel:np.array, median_size:Tuple[int,int])->np.array:
+
+
+
+def match_burst_trace(trace_bb:np.array, burst_kernel:np.array, median_size:Tuple[int,int])->np.array:
     """ Apply a matched filter kernel to a trace
-    and return the convolution """
-
-    # dd = filtfilt(B,A,double(data{2}(:,:,1)) .* exp(j*2*pi*-10/50*(0:Nt-1).'));
-    # TODO: move butterworth filter creation etc, out
-    B, A = butter(2, 11/25)
-    Nt = len(trace)
-    dd = filtfilt(B, A, trace.astype(float) * np.exp(1j*2*np.pi*-10/50*np.arange(Nt)))
+    and return the convolution 
+    Assumes the trace has already been downconverted to baseband
+    and that the kernel is also already adownconverted complex exponential
+    """
 
     # ee = ifft(fft(dd) .* cc);
-    trace_ee = np.atleast_2d(convolve(dd, burst_kernel, mode='same', method='auto'))
+    trace_ee = np.atleast_2d(convolve(trace_bb, burst_kernel, mode='same', method='auto'))
 
+    # medfilt2d is faster, around 290 seconds as median_filter for median_size=(1,51)
+    # medfilt is the same as median_filter, 377 seconds
     # nn = lp(medfilt2(abs(ee).^2,[3 51],'symmetric'));
-    trace_nn = median_filter(abs(trace_ee), size=median_size, mode='constant')
+    #trace_nn = median_filter(abs(trace_ee), size=median_size, mode='reflect')
+    trace_nn = medfilt2d(abs(trace_ee), kernel_size=list(median_size))
+    #trace_nn = medfilt(abs(trace_ee[0,:]), kernel_size=median_size[1])
     # tt = lp(ee) - nn
-    tt = lp(trace_ee) - lp(trace_nn) #abs(lp(trace_nn) - lp(trace_ee))
-    tt = tt[0,:]
-    assert tt.shape == trace.shape, "Input shape doesn't match output: input.shape=%r tt.shape=%r" % (trace.shape, tt.shape)
+    tt = lp(trace_ee/trace_nn)[0,:] #abs(lp(trace_nn) - lp(trace_ee))
+    assert tt.shape == trace_bb.shape, "Input shape doesn't match output: input.shape=%r tt.shape=%r" % (trace.shape, tt.shape)
     return tt
 
 

@@ -50,7 +50,7 @@ import numpy as np
 # Pik1ChannelSpec
 #import unfoc.parse_channels
 
-__version__ = '2.0.0'
+__version__ = '2.1.0'
 
 HEADER_FORMATS = {
     'RADnh3': {

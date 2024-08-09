@@ -7,3 +7,5 @@
 # RADnh5 MARFA
 #/disk/kea/WAIS/orig/xlob/DEV/JKB2t/Y49a/RADnh5/bxds
 #/disk/kea/WAIS/orig/xlob/DEV2/JKB2t/Y91a/RADnh5/bxds
+# For testing burst noise performance:  Trace 932, sample 2985
+/disk/kea/WAIS/orig/xlob/PPT/MKB2o/Y01e/RADnh5/bxds

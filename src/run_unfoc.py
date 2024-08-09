@@ -12,20 +12,12 @@ import time
 
 import unfoc
 
-def main():
-    # type: () -> None
-    parser = argparse.ArgumentParser(description='Pulse compress radar data with unfocused processor')
-
+def setup_common_args(parser):
     parser.add_argument('-o', '--outdir', required=True,
                         help='directory for output files')
     parser.add_argument('-i', '--input', required=True,
                         help='filename of 2-byte radar file (bxds file)')
 
-    cgroup = parser.add_mutually_exclusive_group(required=True)
-    cgroup.add_argument('--channel_def',
-                        help="Channel spec string. This option is deprecated. Use --channels")
-    cgroup.add_argument('--channels',
-                        help="comma-separated channels to produce, such as 'LoResInco1,LoResInco2'")
 
     parser.add_argument('--output_samples', default=3200, type=int,
                         help='Length of each output sweep (in samples)')
@@ -43,12 +35,28 @@ def main():
                         help="output phase, in addition to magnitude")
     parser.add_argument('--bandpass', action='store_true',
                         help='Process bandpass-sampled data (for use with MARFA data, not for use with legacy HiCARS/HiCARS2 data). Disable cinterp and flips the chirp.')
-    parser.add_argument('-j', '--jobs', default=1, type=int,
-                        help="Max number of CPUs to use for processing")
+    parser.add_argument('--denoise', required=False, default=None, choices=('burst'),
+                            help='Enable burst denoising filter for high gain channels')
+
     parser.add_argument('--nmax', default=0, type=int,
                         help="Maximum number of stacks to output (usually used for testing)")
     parser.add_argument('--debug', action='store_true',
                         help='Print debugging messages')
+
+def main():
+    # type: () -> None
+    parser = argparse.ArgumentParser(description='Pulse compress radar data with unfocused processor')
+
+    cgroup = parser.add_mutually_exclusive_group(required=True)
+    cgroup.add_argument('--channel_def',
+                        help="Channel spec string. This option is deprecated. Use --channels")
+    cgroup.add_argument('--channels',
+                        help="comma-separated channels to produce, such as 'LoResInco1,LoResInco2'")
+
+    setup_common_args(parser)
+
+    parser.add_argument('-j', '--jobs', default=1, type=int,
+                        help="Max number of CPUs to use for processing")
 
     args = parser.parse_args()
 
@@ -58,7 +66,8 @@ def main():
                     format='unfoc: [%(levelname)-5s] %(message)s')
 
     unfoc.unfoc(args.outdir, args.input, args.channels, args.output_samples, args.stackdepth, args.incodepth,
-          args.blanking, args.bandpass, scale=args.scale, output_phases=False, nmax=args.nmax)
+          args.blanking, args.bandpass, scale=args.scale, output_phases=False, nmax=args.nmax, processes=args.jobs,
+          denoise=args.denoise)
 
 
 if __name__ == "__main__":

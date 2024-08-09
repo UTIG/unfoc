@@ -29,13 +29,17 @@ from .burst_noise import denoise_burst
 
 
 def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
-          blanking, bandpass, scale=20000, output_phases=False, nmax=0, processes=1):
+          blanking, bandpass, scale=20000, output_phases=False, nmax=0, processes=1,
+          denoise=None):
     """ Generate all requested output channels of unfoc data and write it to the
     specified output directory with the standard file naming.
 
     The channels parameter is a string containing a comma-separated list
     of output channel specifications.  See parse_channels.get_utig_channels for
     definitions.
+
+    denoise parameter is a string specifying denoising to be performed.
+    Valid values include 'burst', for burst noise denoising, or None, for no denoising (default)
 
     The processes parameter specifies how many channels are processed in parallel.
 
@@ -54,7 +58,14 @@ def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
     delay = 0.01 if processes > 1 else 0.0 # cosmetically delay so channels output in same order
     unfoc_args = lambda p1cs: (outdir, infile, p1cs, output_samples, stackdepth, incodepth,
                        blanking, bandpass, scale, output_phases, nmax, (p1cs.chanout-1)*delay)
-    channel_specs1 = map(enable_burstnoise, channel_specs)
+
+    if denoise == 'burst':
+        channel_specs1 = map(enable_burstnoise, channel_specs)
+    elif denoise is None:
+        channel_specs1 = channel_specs
+    else: # pragma: no cover
+        raise ValueError('Unexpected value for denoise parameter')
+
     gen_args = map(unfoc_args, channel_specs1)
     if processes <= 1:
         for _ in map(unfoc_chan_, gen_args):
@@ -146,10 +157,10 @@ def enable_burstnoise(p1cs: PIK1ChannelSpec):
     """ Look at the channel numbers and enable burst noise suppression
     as required for input channels 2 and 4 (high gain left and high gain right) """
     if p1cs.chan0in in (2, 4):
-        logging.warning("%r adding burstnoise6", p1cs)
+        logging.debug("%r adding burstnoise6", p1cs)
         p1cs = p1cs._replace(burstnoise_chan0=burstnoise6)
     if p1cs.chan1in in (2, 4):
-        logging.warning("%r adding burstnoise6", p1cs)
+        logging.debug("%r adding burstnoise6", p1cs)
         p1cs = p1cs._replace(burstnoise_chan1=burstnoise6)
     return p1cs
 

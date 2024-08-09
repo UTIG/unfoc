@@ -131,8 +131,6 @@ class TestUnfoc(UnfocBase):
         }
         return self.run_unfoc(unfoc_params, TESTLIST, outprefix)
 
-    # TODO: test that phases=0 results in no phase
-
     # TODO: test that single threaded comes out the same as multithreaded
     def test_reverseblank(self):
         outprefix = os.path.join(OUTPUTDIR, 'unfoc_test1_')
@@ -147,7 +145,6 @@ class TestUnfoc(UnfocBase):
         }
         return self.run_unfoc(unfoc_params, TESTLIST, outprefix)
 
-    # TODO: test that phases=0 results in no phase
     # TODO: test that single threaded comes out the same as multithreaded
     def test_noblank(self):
         outprefix = os.path.join(OUTPUTDIR, 'unfoc_test1_')
@@ -162,6 +159,21 @@ class TestUnfoc(UnfocBase):
         }
         return self.run_unfoc(unfoc_params, TESTLIST, outprefix)
 
+
+    def test_denoise_burst(self):
+        """ Enable denoising filter """
+        outprefix = os.path.join(OUTPUTDIR, 'unfoc_test1_')
+        unfoc_params = {
+            'output_samples': 3200,
+            'stackdepth': 10,
+            'incodepth': 5,
+            'blanking': 50,
+            'nmax': 100,
+            'output_phases': False,
+            'processes': 1,
+            'denoise': 'burst',
+        }
+        return self.run_unfoc(unfoc_params, TESTLIST, outprefix)
 
 def main():
     logging.basicConfig(level=LOGLEVEL, stream=sys.stdout)
