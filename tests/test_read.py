@@ -513,6 +513,15 @@ class TestClassEx2(TestClassEx1):
         bxds_input = WAIS / 'orig/xlob' / pst / snm / 'bxds'
         self.rread = unfoc.RadBxdsEx(bxds_input, channels=p1cs, dtype=np.double)
 
+class TestClassExNoise(TestClassEx1):
+    """ Test RadBxdsBase with the high sum gain channel and enable denoising """
+    def setUp(self):
+        p1cs = unfoc.get_utig_channels('LoResInco2', radar='MARFA')[0]
+        p1cs = unfoc.enable_burstnoise(p1cs)
+        pst, snm = 'DEV2/JKB2t/Y91a', 'RADnh5'
+        bxds_input = WAIS / 'orig/xlob' / pst / snm / 'bxds'
+        self.rread = unfoc.RadBxdsEx(bxds_input, channels=p1cs)
+
 
 class TestOneMeter(unittest.TestCase):
     def test_1m_a(self):
