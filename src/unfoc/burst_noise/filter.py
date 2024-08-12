@@ -87,6 +87,18 @@ class BurstDenoiser:
                % (traces.shape, out.shape)
         return out
 
+        #logging.warning("trace %d Number of Pulse ROIs: %d", ii, numpulses)
+        """ debugging plots
+        if ii == 932:
+            plt.clf()
+            plt.plot(lp(trace), alpha=0.5, label='orig')
+            plt.plot(lp(trace_out), alpha=0.5, label='silenced')
+            plt.plot(lp(trace) - lp(trace_out), label='diff')
+            plt.grid()
+            plt.legend()
+            plt.show()
+        """
+
 
 def denoise_burst(tracegen, median_size:Tuple[int,int], 
                   burst_widths: List[float], detect_thresholds:List[float]):
@@ -124,6 +136,8 @@ def denoise_burst(tracegen, median_size:Tuple[int,int],
     assert len(burst_widths) == len(detect_thresholds), \
            "Number of burst widths and detection thresholds must match"
 
+    bdn = BurstDenoiser(median_size, burst_widths, detect_thresholds)
+
     if False:
         # Make burst noise templates for matching
         kernels = [make_pulse_kernel(burst_width, nsamples=None, amplitude=1000.)
@@ -135,53 +149,9 @@ def denoise_burst(tracegen, median_size:Tuple[int,int],
     expon = None # downconversion complex exponential
     logging.info("detect thresholds: %r", detect_thresholds)
     for ii, traceobj in enumerate(tracegen):
-        trace = traceobj.data
-        # Iterate through kernels and find location matches
-        detection = np.zeros_like(trace, dtype=np.int8)
-
-        # trace downconverted to baseband
-        if expon is None:
-            Nt = len(trace)
-            # dd = filtfilt(B,A,double(data{2}(:,:,1)) .* exp(j*2*pi*-10/50*(0:Nt-1).'));
-            expon = np.exp(1j*2*np.pi*-10/50*np.arange(Nt))
-        trace_bb = filtfilt(*lpf, trace.astype(float) * expon)
-
-        # TODO: refactor this to allow all of the median filters
-        # to be done at once.  This should be more efficient since
-        # the setup for the median_filter function only needs to be
-        # called once for the entire 3-dimensional array
-        for kern, detect_threshold in zip(kernels, detect_thresholds):
-        
-            match = match_burst_trace(trace_bb, kern, median_size)
-            assert match.shape == detection.shape, "unexpected match shape"
-            #detection += (match >= detect_threshold)
-            np.maximum(detection, (match >= detect_threshold), out=detection)
-
-
-        pulse_rois = list(detected_pulses(detection))
-        if not pulse_rois: # if nothing detected
-            yield traceobj
-            continue
-        numpulses += len(pulse_rois)
-        # Silence burst noise
-        trace_out = np.copy(trace)
-        for roi in pulse_rois:
-            trace_out[roi[0]:roi[1]] = silence_burst(trace, roi)
+        trace_out = bdn.denoise(traceobj.data)
         yield Trace(traceobj.channel, trace_out, traceobj.ct)
 
-        #logging.warning("trace %d Number of Pulse ROIs: %d", ii, numpulses)
-        """ debugging plots
-        if ii == 932:
-            plt.clf()
-            plt.plot(lp(trace), alpha=0.5, label='orig')
-            plt.plot(lp(trace_out), alpha=0.5, label='silenced')
-            plt.plot(lp(trace) - lp(trace_out), label='diff')
-            plt.grid()
-            plt.legend()
-            plt.show()
-        """
-
-    #logging.debug("Number of Pulse ROIs: %d", numpulses)
 
 def detected_pulses(detection:np.array, gap:int=14):
     """ Given a detection array, return a sequence of

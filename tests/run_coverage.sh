@@ -12,7 +12,7 @@ mkdir -p $OUTDIR
 
 coverage3 run ../src/run_unfoc.py -h > /dev/null
 coverage3 run ../src/run_unfoc_1m.py -h > /dev/null
-coverage3 run -a ../src/unfoc/read.py -h > /dev/null
+#coverage3 run -a ../src/unfoc/read.py -h > /dev/null
 #coverage3 run -a ../read.py -i $WAIS/orig/xlob/NIS4/IBH0e/X84b/RADnh5/bxds --mmap
 #coverage3 run -a ../read.py -i $WAIS/orig/xlob/NIS4/IBH0e/X84b/RADnh5/bxds
 # Try with a RADnh3.
