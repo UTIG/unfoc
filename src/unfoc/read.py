@@ -49,6 +49,8 @@ import numpy as np
 
 # Pik1ChannelSpec
 #import unfoc.parse_channels
+from .trace import Trace
+from .burst_noise import BurstDenoiser
 
 __version__ = '2.1.0'
 
@@ -66,17 +68,6 @@ HEADER_FORMATS = {
 }
 
 
-
-class Trace:
-    """
-    Pairs channel + data and CT metadata for a trace.
-    Data is either raw amplitudes, or complex amplitudes
-    """
-    def __init__(self, channel, data, ct):
-        # type: (int, np.ndarray, Union[tuple,List[tuple]]) -> None
-        self.channel = channel
-        self.data = data # type: np.ndarray
-        self.ct = ct # type: tuple
 
 
 
@@ -348,14 +339,17 @@ class RadBxds:
     alternative name ideas:
     
     """
-    def __init__(self, filename=None, channel=None, stream=None):
-        """ Initialize the reader to access one channel's records """
+    def __init__(self, filename:str=None, channel:int=None, stream=None, burstnoise=None):
+        """ Initialize the reader to access one channel's records
+        if burstnoise is a dictionary, pass this to the burst noise calculation
+        """
         self.index_ = []
         self.mmbxds_ = None
         self.fd_ = None
         self.cts_ = None
+        self.burstnoise = None
         if filename is not None:
-            self.open(filename, channel, stream)
+            self.open(filename, channel, stream, burstnoise)
 
     def __del__(self):
         self.close()
@@ -371,7 +365,7 @@ class RadBxds:
         self.index_ = []
 
 
-    def open(self, filename, channel, stream=None):
+    def open(self, filename:str, channel:int, stream=None, burstnoise=None):
         """ Open the bxds and load record index for bxds
         This ignores sequence numbers and assumes that there are no
         out-of-order radar records within a channel.
@@ -380,6 +374,7 @@ class RadBxds:
         filename: bxds filename
         channel: one-based channel number
         stream: (optional) hint for stream type
+        burstnoise: if burstnoise is a dictionary, pass this to the burst noise calculation
 
         """
 
@@ -403,6 +398,11 @@ class RadBxds:
                 lastbyte = item[0] + item[1] + bytes_per_samp * item[3]
                 if lastbyte <= filesize:
                     self.index_.append(item + (ii,))
+
+        # Setup burst denoising if in a channel that wants it
+        if burstnoise is not None:
+            self.burstnoise = BurstDenoiser(**burstnoise)
+
 
     def size(self):
         """ Return the number of traces for this channel """
@@ -451,6 +451,9 @@ class RadBxds:
             # which occurs with numpy version 1.22.4 and later
             data = np.copy(np.frombuffer(self.mmbxds_, dtype=">i2", offset=i0, count=nsamp))
 
+        if self.burstnoise:
+            data = self.burstnoise.denoise(data)
+
         return data
 
 
@@ -475,15 +478,16 @@ class RadBxdsEx:
     (currently only supports combining two channels with summation)
 
     """
-    def __init__(self, filename=None, channels=None, stream=None, dtype=None, bxds_class=RadBxds):
+    def __init__(self, filename:str=None, channels=None, stream=None, dtype=None, bxds_class=RadBxds):
         self.rbxds0_ = None
         self.rbxds1_ = None
         self.dtype = None
         self.bxds_class_ = bxds_class
+
         if filename is not None:
             self.open(filename, channels, stream, dtype)
 
-    def open(self, filename, channels, stream=None, dtype=None):
+    def open(self, filename:str, channels, stream=None, dtype=None):
         """
         filename: bxds file to load
         channels: list of channels to load (a PIK1ChannelSpec object)
@@ -496,13 +500,13 @@ class RadBxdsEx:
 
         if channels.scalef0 == 1 and channels.scalef1 == 1:
             # sum channels
-            self.rbxds0_ = self.bxds_class_(filename, channels.chan0in, stream)
-            self.rbxds1_ = self.bxds_class_(filename, channels.chan1in, stream)
+            self.rbxds0_ = self.bxds_class_(filename, channels.chan0in, stream, burstnoise=channels.burstnoise_chan0)
+            self.rbxds1_ = self.bxds_class_(filename, channels.chan1in, stream, burstnoise=channels.burstnoise_chan1)
             self.len_ = min(len(self.rbxds0_), len(self.rbxds1_))
         else:
             # If we're only doing one channel, it better be chan0
             assert channels.scalef0 == 1
-            self.rbxds0_ = RadBxds(filename, channels.chan0in, stream)
+            self.rbxds0_ = RadBxds(filename, channels.chan0in, stream, burstnoise=channels.burstnoise_chan0)
             self.rbxds1_ = None
             self.len_ = len(self.rbxds0_)
 
@@ -516,7 +520,8 @@ class RadBxdsEx:
         self.close()
 
     def close(self):
-        self.rbxds0_.close()
+        if self.rbxds0_ is not None:
+            self.rbxds0_.close()
         if self.rbxds1_ is not None:
             self.rbxds1_.close()
 
@@ -583,7 +588,7 @@ class RADjh1Bxds:
         self.filename = None
         self.channel_ = None
 
-    def open(self, filename, channel, stream=None):
+    def open(self, filename:str, channel:int, stream=None):
         """ Open the bxds and load record index for bxds
         filename: bxds filename for low gain channel
         channel: one-based channel number
@@ -591,8 +596,9 @@ class RADjh1Bxds:
 
         """
 
-        assert channel == 1 or channel == 2
-        assert os.path.basename(filename) == ('bxds%d' % channel)
+        assert channel in (1, 2), "RADjh1 only has channels 1 and 2"
+        assert os.path.basename(filename) == ('bxds%d' % channel), \
+               "Mismatch between filename and channel"
 
         self.channel_ = channel
         self.filename_ = filename

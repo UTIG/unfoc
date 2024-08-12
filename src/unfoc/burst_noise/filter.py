@@ -11,7 +11,82 @@ from scipy.ndimage import median_filter
 from scipy.signal import convolve, butter, filtfilt, medfilt2d, medfilt
 #import matplotlib.pyplot as plt
 
-from ..read import Trace
+from ..trace import Trace
+
+class BurstDenoiser:
+    """ Class-encapsulated interface to burst denoising
+    TODO: combine with functional interface
+    """
+    def __init__(self, median_size:Tuple[int,int], burst_widths: List[float], detect_thresholds:List[float]):
+
+        assert median_size[0] == 1, "Median must be 1D for now"
+        assert median_size[0] % 2 == 1 and median_size[1] % 2 == 1, \
+               "Median filter dimensions must be odd"
+        assert min(burst_widths) > 0, "Burst widths must be positive"
+        assert len(burst_widths) == len(detect_thresholds), \
+               "Number of burst widths and detection thresholds must match"
+
+        if False:
+            # Make burst noise templates for matching
+            self.kernels = [make_pulse_kernel(burst_width, nsamples=None, amplitude=1000.)
+                       for burst_width in burst_widths]
+        else:
+            self.kernels = [load_pulse_kernel()]
+
+        self.lpf_ = butter(2, 11/25) # downconversion lowpass filter
+        self.expon_ = None # downconversion complex exponential
+
+        self.median_size = median_size
+        self.detect_thresholds = detect_thresholds
+        assert len(detect_thresholds) == len(self.kernels)
+
+    def denoise(self, traces: np.ndarray)->np.ndarray:
+        """ traces: a 1D or 2D array of traces to be denoised 
+        return value: denoised traces"""
+        numpulses = 0
+
+        if self.expon_ is None:
+            nsamples = traces.shape[-1]
+            # dd = filtfilt(B,A,double(data{2}(:,:,1)) .* exp(j*2*pi*-10/50*(0:Nt-1).'));
+            self.expon_ = np.exp(1j*2*np.pi*-10/50*np.arange(nsamples))
+
+        traces2d = np.atleast_2d(traces)
+        traces2d_out = np.empty_like(traces2d)
+        detection = np.empty(traces2d_out.shape[1], dtype=np.int8)
+
+        for ii, trace in enumerate(traces2d):
+            # Downconvert trace to baseband
+            trace_bb = filtfilt(*self.lpf_, trace.astype(float) * self.expon_)
+            detection[...] = 0 #np.zeros_like(trace, dtype=np.int8)
+
+            # TODO: refactor this to allow all of the median filters
+            # to be done at once.  This should be more efficient since
+            # the setup for the median_filter function only needs to be
+            # called once for the entire 3-dimensional array
+            for jj, (kern, detect_threshold) in enumerate(zip(self.kernels, self.detect_thresholds)):
+                match = match_burst_trace(trace_bb, kern, self.median_size)
+                assert match.shape == detection.shape, "unexpected match shape"
+                #detection += (match >= detect_threshold)
+                np.maximum(detection, (match >= detect_threshold), out=detection)
+
+
+            pulse_rois = list(detected_pulses(detection))
+            if not pulse_rois: # if nothing detected
+                traces2d_out[ii] = trace
+            else:
+                numpulses += len(pulse_rois)
+                # Silence burst noise
+                trace_out = np.copy(trace)
+                for roi in pulse_rois:
+                    trace_out[roi[0]:roi[1]] = silence_burst(trace, roi)
+                traces2d_out[ii] = trace_out
+
+        out = traces2d_out[0] if len(traces.shape) == 1 else traces2d_out
+        assert out.shape == traces.shape, \
+               "Output shape doesn't match input: input.shape=%r output.shape=%r" \
+               % (traces.shape, out.shape)
+        return out
+
 
 def denoise_burst(tracegen, median_size:Tuple[int,int], 
                   burst_widths: List[float], detect_thresholds:List[float]):
