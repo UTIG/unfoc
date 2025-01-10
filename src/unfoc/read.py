@@ -134,7 +134,7 @@ def get_radar_type(bxdsfile, nrecords=2000, stream=None):
     MAX_CHANNELS = len(wanted_channels)
 
     choffs = set()
-    gen = index_RADnhx_bxds_mmap_(bxdsfile, stream=stream)
+    gen = index_RADnhx_bxds(bxdsfile, stream=stream)
     # fpos, headerlen, header.choff, header.nsamp
     for ii, (_, _, choff, _) in enumerate(gen):
         if choff == 0xff:
@@ -382,16 +382,23 @@ class RadBxds:
         self.channel0_ = channel - 1 # zero-based channel index
         self.trace_byteoffset_ = 2 * (self.channel0_ & 1)
         self.fd_ = open(filename, 'rb')
-        self.mmbxds_ = mmap.mmap(self.fd_.fileno(), 0, access=mmap.ACCESS_READ)
+        self.mmbxds_ = None
 
         self.index_ = []
-        filesize = self.mmbxds_.size()
+
+        #---------------------
+        # calculate file size
+        prev = self.fd_.tell()
+        self.fd_.seek(0, 2)
+        filesize = self.fd_.tell()
+        self.fd_.seek(prev, 0)
+        #---------------------
         # Channel offset that we are expecting to filter for.
         choff = self.channel0_ - (self.channel0_ & 1)
         # Length of a record's trace data in bytes per sample
         bytes_per_samp = ((self.channel0_ & 1) + 1) * 2
 
-        for ii, item in enumerate(index_RADnhx_bxds_mmap_(filename, stream=stream)):
+        for ii, item in enumerate(index_RADnhx_bxds(filename, stream=stream)):
             if item[2] == 0xff: # Replace choff if it is 0xff
                 item = (item[0], item[1], 0x00, item[3])
             if item[2] == choff:
@@ -435,7 +442,8 @@ class RadBxds:
             for ii, idxinfo in enumerate(self.index_[idx]):
                 fpos, headerlen, _, nsamp, _ = idxinfo
                 i0 = fpos + headerlen + self.trace_byteoffset_ * nsamp
-                data[ii, :] = np.frombuffer(self.mmbxds_, dtype=">i2", offset=i0, count=nsamp)
+                self.fd_.seek(i0, 0)
+                data[ii, :] = np.frombuffer(self.fd_.read(nsamp<<1), dtype=">i2")
         elif isinstance(idx, tuple):
             # multiple indices -- pass others down to ndarray
             data = self.__getitem__(idx[0])
@@ -447,9 +455,8 @@ class RadBxds:
         else: # assume it is an individual index.  Return a singleton dimension.
             fpos, headerlen, _, nsamp, _ = self.index_[idx]
             i0 = fpos + headerlen + self.trace_byteoffset_ * nsamp
-            # np.copy is to address unfoc Issue #6: BufferError: cannot close exported pointers exist
-            # which occurs with numpy version 1.22.4 and later
-            data = np.copy(np.frombuffer(self.mmbxds_, dtype=">i2", offset=i0, count=nsamp))
+            self.fd_.seek(i0, 0)
+            data = np.frombuffer(self.fd_.read(nsamp<<1), dtype=">i2")
 
         if self.burstnoise:
             data = self.burstnoise.denoise(data)
@@ -575,6 +582,8 @@ class RADjh1Bxds:
 
     def __init__(self, filename=None, channel=None, stream=None):
         """ Initialize the reader to access one channel's records """
+        self.fd_ = None
+
         self.close()
         if filename is not None:
             self.open(filename, channel, stream)
@@ -587,6 +596,9 @@ class RADjh1Bxds:
         self.mmbxds_ = None
         self.filename = None
         self.channel_ = None
+        if self.fd_ is not None:
+            self.fd_.close()
+            self.fd_ = None
 
     def open(self, filename:str, channel:int, stream=None):
         """ Open the bxds and load record index for bxds
@@ -601,11 +613,14 @@ class RADjh1Bxds:
                "Mismatch between filename and channel"
 
         self.channel_ = channel
+
         self.filename_ = filename
 
         filesize = os.path.getsize(filename)
+        assert filesize % (3200*2) == 0, "File isn't expected size: %d bytes" % (filesize)
         ntraces = filesize // (3200*2) # 3200 samples * 2 bytes per sample
 
+        #self.fd_ = open(filename, 'rb')
         self.mmbxds_ = np.memmap(filename, dtype='>i2', mode='r', shape=(ntraces, 3200))
 
     def size(self):
