@@ -621,7 +621,7 @@ class RADjh1Bxds:
         ntraces = filesize // (3200*2) # 3200 samples * 2 bytes per sample
 
         #self.fd_ = open(filename, 'rb')
-        self.mmbxds_ = np.memmap(filename, dtype='>i2', mode='r', shape=(ntraces, 3200))
+        self.mmbxds_ = np.memmap(filename, dtype='<i2', mode='r', shape=(ntraces, 3200))
 
     def size(self):
         return self.__len__()
