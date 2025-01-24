@@ -167,6 +167,7 @@ def sync_radar_start(bxdsfile: str, nrecords:int=2000, stream=None):
         - The record number of this record in the bxds file
         - The file position in the bxds file
         - The rseq number
+        - The number of unique channel offsets present in the bxds file
     """
     # mapping of rseq number and the file position of that record
     rseq_to_fpos = defaultdict(list)
@@ -183,7 +184,7 @@ def sync_radar_start(bxdsfile: str, nrecords:int=2000, stream=None):
     for rseq, fposlist in sorted(rseq_to_fpos.items()):
         if len(fposlist) == nchan:
             # Return the first rseq and first position where this was seen.
-            return *fposlist[0], rseq
+            return *fposlist[0], rseq, nchan
 
     raise ValueError("No radar records in %s" % bxdsfile)
 
