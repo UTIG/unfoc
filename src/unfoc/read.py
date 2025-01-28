@@ -37,10 +37,11 @@ the format of the data from the binary contents of the file.
 
 """
 
-from collections import namedtuple, defaultdict
+from collections import namedtuple, defaultdict, Counter
 import itertools
 import logging
 import os
+from pathlib import Path
 import struct
 import gzip
 import mmap
@@ -172,15 +173,36 @@ def sync_radar_start(bxdsfile: str, nrecords:int=2000, stream=None):
     # mapping of rseq number and the file position of that record
     rseq_to_fpos = defaultdict(list)
 
+    if stream is None:
+        stream = get_radar_stream(bxdsfile)
+
+    if stream == 'RADnh3':
+        # rseq needs to come from the seq
+        genct1 = gen_ct(bxdsfile)
+        #f_rseq = lambda ct: ct[0]
+        #genct2 = map(f_rseq, genct1)
+    else:
+        assert stream == 'RADnh5'
+        f_rseq = lambda header: header.rseq
+
     gen1 = index_RADnhx_bxds(bxdsfile, stream=stream, full_header=True)
     gen2 = itertools.islice(gen1, 0, nrecords)
     for ii, (fpos, _, header) in enumerate(gen2):
-        rseq_to_fpos[header.rseq].append((ii, fpos))
+
+        if stream == 'RADnh3':
+            rseq = next(genct1)[0]
+        else:
+            # assert stream == 'RADnh5'
+            rseq = header.rseq
+
+        rseq_to_fpos[rseq].append((ii, fpos))
         if len(rseq_to_fpos) > 10:
             break
 
     # Number of channels is the max number of times we see an rseq value
     nchan = max([len(fposlist) for fposlist in rseq_to_fpos.values()])
+    # TODO: we can also get this from the nchan field in RADnh3 and RADnh5. assertion check?
+    
     for rseq, fposlist in sorted(rseq_to_fpos.items()):
         if len(fposlist) == nchan:
             # Return the first rseq and first position where this was seen.
@@ -188,11 +210,75 @@ def sync_radar_start(bxdsfile: str, nrecords:int=2000, stream=None):
 
     raise ValueError("No radar records in %s" % bxdsfile)
 
-def index_RADnhx_bxds(input_filename, stream=None, full_header=False):
+
+def radar_index_summary(bxdsfile:str, stream=None):
+    """ Inspect bxds file to determine which records are complete (all digitizers present),
+    what type of stream it is (RADnh3 or RADnh5)
+    how many digitizers there are
+    what the first radar sequence number is
+    what the first radar sequence number that has all digitizer records
+    what the last radar sequence number is that has all digitizer records
+    and whether there are any radar sequence numbers that are missing digitizer records
+    and what they are
+
+    Return a dictionary with this information
+    """
+    p_bxdsfile = Path(bxdsfile)
+    stat = p_bxdsfile.stat()
+    if stream is None:
+        stream = get_radar_stream(bxdsfile)
+
+    rec0, fpos0, rseq0, nchan = sync_radar_start(bxdsfile, stream=stream)
+
+    info = {
+        'filename': str(bxdsfile),
+        'filesize': stat.st_size,
+        'filemtime': int(stat.st_mtime),
+        'format': stream,
+        'rseq_valid_range': [rseq0, None], # need to figure out the last complete
+        'valid_records': 0, # number of records with all radar records
+        'nchan': nchan,
+        'incomplete_records': {},
+    }
+    gen1 = index_RADnhx_bxds(bxdsfile, stream=stream, full_header=True)
+    if stream == 'RADnh3':
+        ctgen = gen_ct(bxdsfile)
+    last_rseq = info['rseq_valid_range'][0]
+    #valid_records = 1
+    valid_records = 0
+    rseqs = Counter()
+    for ii, (fpos, _, header) in enumerate(gen1):
+        if stream == 'RADnh5':
+            rseq = header.rseq
+        elif stream == 'RADnh3':
+            rseq = next(ctgen).seq
+        else: # pragma: no cover
+            raise ValueError('Processing for %s not yet implemented' % stream)
+
+        rseqs[rseq] += 1
+        if rseqs[rseq] == nchan:
+            last_rseq = rseq
+            valid_records += 1
+            del rseqs[rseq]
+
+    info['rseq_valid_range'][1] = last_rseq
+    info['valid_records'] = valid_records
+
+    if rseqs: # if any orphan records (including before or after valid range)
+        info['incomplete_records'] = dict(rseqs)
+
+    return info
+
+
+
+def index_RADnhx_bxds(input_filename, stream=None, full_header=False, filepos:int=None):
     # type: (str) -> Generator[tuple]
     """ Read the positions of packets within a RADnh3 and RADnh5 bxds file
     and return these as a generator
     Routines can then use this to seek to the correct location in a file.
+
+    if filepos is not None, seek to this file position before indexing
+
     # TODO: rework this function to always return the full header and make
     all callers grab the member methods
     """
@@ -210,7 +296,12 @@ def index_RADnhx_bxds(input_filename, stream=None, full_header=False):
     header_struct = struct.Struct(fmtstr)
 
     with open(input_filename, 'rb') as fd:
-        fpos = 0
+        if filepos is None:
+            fpos = 0
+        else:
+            fpos = filepos
+            fd.seek(fpos)
+
         while True:
             # read header
             fpos = fd.tell()
@@ -225,13 +316,17 @@ def index_RADnhx_bxds(input_filename, stream=None, full_header=False):
                 # to skip over 'em to get to the radar data.
                 if header.tscount > 0:
                     # timestamp count should be on the order of the number of stacks.
-                    assert(header.tscount < 100)
+                    assert header.tscount < 100, \
+                        "%s fpos=%d header.tscount=%d" % (input_filename, fpos, header.tscount)
                     #tstamps = struct.unpack_from('>{:d}d'.format(tscount), fd.read(8*tscount))
                     fd.seek(8*header.tscount, os.SEEK_CUR)
                     headerlen += 8*header.tscount
 
             input_samples = header.nsamp
-            assert 0 < input_samples < 10000
+            assert 0 < input_samples < 10000, \
+                "%s fpos=%d header.nsamp=%d" % (input_filename, fpos, input_samples)
+
+            # TODO: warn if nsamp != 3200 or 3437?
 
             if full_header: # want to make this the default behavior at some point
                 yield fpos, headerlen, header
@@ -297,12 +392,14 @@ def index_RADnhx_bxds_mmap_(input_filename, stream=None, full_header:bool=False)
 
 
 
-def read_RADnhx_gen(bxds_filename, channel, stream=None):
+def read_RADnhx_gen(bxds_filename:str, channel:int, stream:str=None, filepos:int=None):
     """ Return a sequence of traces from only one channel, from a bxds
     channel offset is a one-based index.
 
     Takes a bxds filename as an argument.
     Reads from this file and a ct file alongside it.
+
+    filepos has the same meaning as in index_RADnhx_bxds
 
     """
     assert 1 <= channel # one-based channel number
@@ -313,7 +410,7 @@ def read_RADnhx_gen(bxds_filename, channel, stream=None):
 
     with open(bxds_filename, 'rb') as fd: # for reading traces
         ctgen = gen_ct(bxds_filename)
-        radgen = index_RADnhx_bxds(bxds_filename, stream)
+        radgen = index_RADnhx_bxds(bxds_filename, stream, filepos)
         for radinfo, ctinfo in zip(radgen, ctgen):
             fpos, headerlen, rchoff, nsamp = radinfo
             if rchoff == 0xff:
@@ -340,25 +437,26 @@ class RadBxds:
     alternative name ideas:
     
     """
-    def __init__(self, filename:str=None, channel:int=None, stream=None, burstnoise=None):
+    def __init__(self, filename:str=None, channel:int=None, stream=None, burstnoise=None,
+                 validonly=False):
         """ Initialize the reader to access one channel's records
         if burstnoise is a dictionary, pass this to the burst noise calculation
         """
         self.index_ = []
-        self.mmbxds_ = None
+        #self.mmbxds_ = None
         self.fd_ = None
         self.cts_ = None
         self.burstnoise = None
         if filename is not None:
-            self.open(filename, channel, stream, burstnoise)
+            self.open(filename, channel, stream, burstnoise, validonly)
 
     def __del__(self):
         self.close()
 
     def close(self):
-        if self.mmbxds_ is not None:
-            self.mmbxds_.close()
-            self.mmbxds_ = None
+        #if self.mmbxds_ is not None:
+        #    self.mmbxds_.close()
+        #    self.mmbxds_ = None
         if self.fd_ is not None:
             self.fd_.close()
             self.fd_ = None
@@ -366,24 +464,27 @@ class RadBxds:
         self.index_ = []
 
 
-    def open(self, filename:str, channel:int, stream=None, burstnoise=None):
+    def open(self, filename:str, channel:int, stream=None, burstnoise=None,
+             validonly:bool=False):
         """ Open the bxds and load record index for bxds
         This ignores sequence numbers and assumes that there are no
         out-of-order radar records within a channel.
         In theory we could sort the records by sequence number.
 
         filename: bxds filename
-        channel: one-based channel number
+        channel: one-based radar channel number
         stream: (optional) hint for stream type
         burstnoise: if burstnoise is a dictionary, pass this to the burst noise calculation
+        validonly: If validonly is true (will become default in the future), then only return records
+        that are valid among all channels
 
         """
 
-        assert channel >= 1
+        assert channel >= 1, "Channel parameter should be 1-based"
         self.channel0_ = channel - 1 # zero-based channel index
         self.trace_byteoffset_ = 2 * (self.channel0_ & 1)
         self.fd_ = open(filename, 'rb')
-        self.mmbxds_ = None
+        #self.mmbxds_ = None
 
         self.index_ = []
 
@@ -394,16 +495,44 @@ class RadBxds:
         filesize = self.fd_.tell()
         self.fd_.seek(prev, 0)
         #---------------------
+
+        if stream is None:
+            stream = get_radar_stream(filename)
+
+        if stream == 'RADnh3':
+            genct1 = gen_ct(filename)
+
+        if validonly:
+            radinfo = radar_index_summary(str(filename), stream=stream)
+            #rec0, fpos0, rseq0, nchan = sync_radar_start(str(bxds), stream=s)
+            rseq_min, rseq_max = radinfo['rseq_valid_range']
+        else:
+            rec0, fpos0, rseq0, nchan = 0, 0, None, None
+            rseq_min, rseq_max = None, None
+
         # Channel offset that we are expecting to filter for.
         choff = self.channel0_ - (self.channel0_ & 1)
         # Length of a record's trace data in bytes per sample
         bytes_per_samp = ((self.channel0_ & 1) + 1) * 2
+        for ii, item in enumerate(index_RADnhx_bxds(filename, stream=stream, full_header=True)):
+            fpos, headerlen, header = item
 
-        for ii, item in enumerate(index_RADnhx_bxds(filename, stream=stream)):
-            if item[2] == 0xff: # Replace choff if it is 0xff
-                item = (item[0], item[1], 0x00, item[3])
-            if item[2] == choff:
-                lastbyte = item[0] + item[1] + bytes_per_samp * item[3]
+            if rseq_min is not None: # rseq is specified
+                if stream == 'RADnh5':
+                    rseq = header.rseq
+                elif stream == 'RADnh3':
+                    rseq = next(genct1)[0]
+                else: #pragma: no cover
+                    raise ValueError("Unsupported stream %r" % stream)
+
+                if not (rseq_min <= rseq <= rseq_max):
+                    continue
+
+
+            if header.choff == 0xff: # Replace choff if it is 0xff
+                header = header._replace(choff=0x00)
+            if header.choff == choff:
+                lastbyte = fpos + headerlen + bytes_per_samp * header.nsamp
                 if lastbyte <= filesize:
                     self.index_.append(item + (ii,))
 
@@ -438,13 +567,13 @@ class RadBxds:
         if isinstance(idx, slice): # 1D slice case
             indices = idx.indices(len(self.index_))
             ntraces = len(range(*indices))
-            data = np.empty((ntraces, self.index_[0][3]), dtype=">i2")
+            data = np.empty((ntraces, self.index_[0][2].nsamp), dtype=">i2")
 
             for ii, idxinfo in enumerate(self.index_[idx]):
-                fpos, headerlen, _, nsamp, _ = idxinfo
-                i0 = fpos + headerlen + self.trace_byteoffset_ * nsamp
+                fpos, headerlen, header, _ = idxinfo
+                i0 = fpos + headerlen + self.trace_byteoffset_ * header.nsamp
                 self.fd_.seek(i0, 0)
-                data[ii, :] = np.frombuffer(self.fd_.read(nsamp<<1), dtype=">i2")
+                data[ii, :] = np.frombuffer(self.fd_.read(header.nsamp<<1), dtype=">i2")
         elif isinstance(idx, tuple):
             # multiple indices -- pass others down to ndarray
             data = self.__getitem__(idx[0])
@@ -454,10 +583,10 @@ class RadBxds:
                 return data[idx[1]]
 
         else: # assume it is an individual index.  Return a singleton dimension.
-            fpos, headerlen, _, nsamp, _ = self.index_[idx]
-            i0 = fpos + headerlen + self.trace_byteoffset_ * nsamp
+            fpos, headerlen, header, _ = self.index_[idx]
+            i0 = fpos + headerlen + self.trace_byteoffset_ * header.nsamp
             self.fd_.seek(i0, 0)
-            data = np.frombuffer(self.fd_.read(nsamp<<1), dtype=">i2")
+            data = np.frombuffer(self.fd_.read(header.nsamp<<1), dtype=">i2")
 
         if self.burstnoise:
             data = self.burstnoise.denoise(data)
@@ -476,7 +605,7 @@ class RadBxds:
         if self.cts_ is None: # Lazily load CTs
 
             all_cts = tuple(gen_ct(self.fd_.name))
-            self.cts_ = [all_cts[idx[4]] for idx in self.index_]
+            self.cts_ = [all_cts[idx[3]] for idx in self.index_]
         return self.cts_[idx]
 
 
@@ -486,16 +615,16 @@ class RadBxdsEx:
     (currently only supports combining two channels with summation)
 
     """
-    def __init__(self, filename:str=None, channels=None, stream=None, dtype=None, bxds_class=RadBxds):
+    def __init__(self, filename:str=None, channels=None, stream=None, dtype=None, validonly:bool=False, bxds_class=RadBxds):
         self.rbxds0_ = None
         self.rbxds1_ = None
         self.dtype = None
         self.bxds_class_ = bxds_class
 
         if filename is not None:
-            self.open(filename, channels, stream, dtype)
+            self.open(filename, channels, stream, dtype, validonly)
 
-    def open(self, filename:str, channels, stream=None, dtype=None):
+    def open(self, filename:str, channels, stream=None, dtype=None, validonly:bool=False):
         """
         filename: bxds file to load
         channels: list of channels to load (a PIK1ChannelSpec object)
@@ -508,13 +637,13 @@ class RadBxdsEx:
 
         if channels.scalef0 == 1 and channels.scalef1 == 1:
             # sum channels
-            self.rbxds0_ = self.bxds_class_(filename, channels.chan0in, stream, burstnoise=channels.burstnoise_chan0)
-            self.rbxds1_ = self.bxds_class_(filename, channels.chan1in, stream, burstnoise=channels.burstnoise_chan1)
+            self.rbxds0_ = self.bxds_class_(filename, channels.chan0in, stream, burstnoise=channels.burstnoise_chan0, validonly=validonly)
+            self.rbxds1_ = self.bxds_class_(filename, channels.chan1in, stream, burstnoise=channels.burstnoise_chan1, validonly=validonly)
             self.len_ = min(len(self.rbxds0_), len(self.rbxds1_))
         else:
             # If we're only doing one channel, it better be chan0
             assert channels.scalef0 == 1
-            self.rbxds0_ = RadBxds(filename, channels.chan0in, stream, burstnoise=channels.burstnoise_chan0)
+            self.rbxds0_ = self.bxds_class_(filename, channels.chan0in, stream, burstnoise=channels.burstnoise_chan0, validonly=validonly)
             self.rbxds1_ = None
             self.len_ = len(self.rbxds0_)
 

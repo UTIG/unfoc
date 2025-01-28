@@ -189,6 +189,9 @@ class TestClass1(RadBxdsBase):
         pst, snm, bxds_input = list(read_testlist(TESTLIST0))[0]
         self.rread = unfoc.RadBxds(bxds_input, channel=channel)
 
+    def tearDown(self):
+        self.rread.close()
+
     def test_indexing(self):
         """ Check that slicing works consistently with how numpy does it. """
         rread = self.rread

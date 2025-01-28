@@ -22,6 +22,7 @@ coverage3 run ../src/run_unfoc_1m.py -h > /dev/null
 coverage3 run -a ./test_parse_channels.py
 coverage3 run -a ./test_read.py
 coverage3 run -a ./test_unfoc1.py
+coverage3 run -a ./test_multichannel_rect.py
 
 WAIS=/disk/kea/WAIS
 PST=D2DG/IBH0e/X30a
