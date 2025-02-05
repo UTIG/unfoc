@@ -61,7 +61,7 @@ def write_radar(f, bxdsfile:Path, radar_index, chunksize:int=1000, limit:int=Non
              f.attrs['samples_per_trace'])
     f.create_dataset('traces', shape=shape,
                      dtype='>i2',
-                     chunks=(chunksize, 1, 1, shape[3]),
+                     chunks=(chunksize, shape[1], shape[2], shape[3]),
                      # Compress with gzip, but don't try that hard
                      #compression='gzip', compression_opts=1,
                      )
@@ -70,45 +70,43 @@ def write_radar(f, bxdsfile:Path, radar_index, chunksize:int=1000, limit:int=Non
 
     # Rtime is statistics about an array of timestamps of each constituent record in this stack,
     # interval mean and std deviation
-    metadata_rtime = np.zeros(shape=shape[0:2] + (4,), dtype='>d')
+    # Convert to 32-bit float because why would you actually need all that precision?
+    # We probably should have written it this way in the first place
+    metadata_rtime = np.zeros(shape=shape[0:2] + (4,), dtype='>f')
 
 
-    #write_chunks = f['traces'].iter_chunks()
+    write_chunks = f['traces'].iter_chunks()
     #for s in write_chunks:
     nsamples = shape[-1]
     with open(bxdsfile, 'rb') as fhbxds:
-        for chunknum, chunkstart in enumerate(range(0, shape[0], chunksize)):
-            chunkend = min(chunkstart + chunksize, shape[0])
-            chunklen = chunkend - chunkstart
-            chunk = np.empty((chunklen,) + shape[1:], dtype='>i2')
+        for chunknum, s in enumerate(write_chunks):
+            logging.debug("chunk %d %r", chunknum, s)
+            chunk = np.empty(f['traces'][s].shape, dtype='>i2')
 
-            logging.debug("Chunk %d of %d (start=%d end=%d)", chunknum+1, shape[0], chunkstart, chunkend)
-
-            for ii, tracenum in enumerate(range(chunkstart, chunkend)):
-                for digitizernum in range(shape[1]):
+            for ii, tracenum in enumerate(range(s[0].start, s[0].stop, s[0].step)):
+                for jj, digitizernum in enumerate(range(s[1].start, s[1].stop, s[1].step)):
                     fpos, valid = radar_index[tracenum, digitizernum]
 
                     if not valid:
-                        chunk[ii, digitizernum, ...] = 0
+                        chunk[ii, jj, ...] = 0
+                        metadata_rtime[tracenum, digitizernum, :] = 0.
                         continue
 
                     fhbxds.seek(int(fpos) - 4*8) # back up so we can get the rtimes
                     rtimes = np.fromfile(fhbxds, dtype='>d', count=4)
                     metadata_rtime[tracenum, digitizernum, :] = rtimes
                     traces = np.fromfile(fhbxds, dtype='>i2', count=2*nsamples).reshape((2, nsamples))
-                    chunk[ii, digitizernum, :, :] = traces
+                    chunk[ii, jj, :, :] = traces
 
-            f['traces'][chunkstart:chunkend, :, :] = chunk
+            f['traces'][s] = chunk
 
             if limit is not None and chunknum >= limit:
                 break
 
     # Write the rtimes arrays
-    # Convert to 32-bit float because why would you actually need all that precision?
-    # We probably should have written it this way in the first place
-    f.create_dataset('stack_timing/std_dev', data=metadata_rtime[:, :, 0:2].astype('f'), compression='gzip')
+    f.create_dataset('stack_timing/std_dev', data=metadata_rtime[:, :, 0:2], compression='gzip')
     f['stack_timing/std_dev'].attrs['description'] = 'Standard deviation of interval between timestamps of traces used stack, in seconds'
-    f.create_dataset('stack_timing/mean', data=metadata_rtime[:, :, 2:4].astype('f'), compression='gzip')
+    f.create_dataset('stack_timing/mean', data=metadata_rtime[:, :, 2:4], compression='gzip')
     f['stack_timing/mean'].attrs['description'] = 'Mean of interval between timestamps of traces used in stack, in seconds'
 
     # Write the validity array
