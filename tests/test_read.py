@@ -133,7 +133,9 @@ class TestGenCT(unittest.TestCase):
                 bxdsfile = Path(bxdsfile0)
                 ctfile = bxdsfile.with_name('ct.gz')
                 if ctfile.exists():
-                    for _ in unfoc.gen_ct(bxdsfile):
+                    for _ in unfoc.gen_ct(bxdsfile, full=False):
+                        pass
+                    for _ in unfoc.gen_ct(bxdsfile, full=True):
                         pass
                 else:
                     # make a gzip and try it
@@ -164,7 +166,9 @@ class TestGenCT(unittest.TestCase):
                         bxdsfile2 = ptemp / bxdsfile.name
                         bxdsfile2.touch()
                         self.zcat_text(ctfile, ptemp / 'ct')
-                    for _ in unfoc.gen_ct(bxdsfile2):
+                    for _ in unfoc.gen_ct(bxdsfile2, full=False):
+                        pass
+                    for _ in unfoc.gen_ct(bxdsfile2, full=True):
                         pass
 
     def zcat_text(self, file_compressed: Path, file_plain: Path):

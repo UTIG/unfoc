@@ -101,10 +101,11 @@ def get_radar_stream(filename:str):
 
 
 CT_t = namedtuple('CT', 'seq tim')
-def gen_ct(bxdsfile):
+CT_full_t = namedtuple('CT_full', 'prj set trn seq year mon day hour min sec hun tim')
+def gen_ct(bxdsfile, full=False):
     """ Generate ct data from the ct file associated with bxdsfile
-    We only return relevant information. We actually only want the seq and ct tim.
-
+    By default, we only return relevant information. We actually only want the seq and ct tim.
+    If full is True, then return all fields.
     """
     datadir = os.path.dirname(bxdsfile)
     ctfile1 = os.path.join(datadir, 'ct')
@@ -115,11 +116,17 @@ def gen_ct(bxdsfile):
         fh = gzip.open(ctfile2, 'rt')
     else: #pragma: no cover
         return
-    for line in fh:
-        fields = line.rstrip().split()
-        # e.g., THW PBA0a X66a 9644392 2020 02 02 03 22 59 70 2762000089
-        # yield ct, seq
-        yield CT_t(int(fields[3]), int(fields[11]))
+
+    if full:
+        for line in fh:
+            fields = line.rstrip().split()
+            yield CT_full_t(*fields[0:3], * tuple(map(int, fields[3:])))
+    else:
+        for line in fh:
+            fields = line.rstrip().split()
+            # e.g., THW PBA0a X66a 9644392 2020 02 02 03 22 59 70 2762000089
+            # yield ct, seq
+            yield CT_t(int(fields[3]), int(fields[11]))
     fh.close()
 
 
@@ -237,6 +244,7 @@ def radar_index_summary(bxdsfile:str, stream=None):
         'format': stream,
         'rseq_valid_range': [rseq0, None], # need to figure out the last complete
         'valid_records': 0, # number of records with all radar records
+        'nsamples': None,
         'nchan': nchan,
         'incomplete_records': {},
     }
@@ -246,6 +254,7 @@ def radar_index_summary(bxdsfile:str, stream=None):
     last_rseq = info['rseq_valid_range'][0]
     #valid_records = 1
     valid_records = 0
+    nsamp = None
     rseqs = Counter()
     for ii, (fpos, _, header) in enumerate(gen1):
         if stream == 'RADnh5':
@@ -261,8 +270,15 @@ def radar_index_summary(bxdsfile:str, stream=None):
             valid_records += 1
             del rseqs[rseq]
 
+        if nsamp is None:
+            nsamp = header.nsamp
+        elif nsamp != header.nsamp:
+            logging.warning("Number of samples per trace changed at from %d to %d at rseq=%d",
+                            nsamp, header.nsamp, rseq)
+
     info['rseq_valid_range'][1] = last_rseq
     info['valid_records'] = valid_records
+    info['nsamples'] = nsamp
 
     if rseqs: # if any orphan records (including before or after valid range)
         info['incomplete_records'] = dict(rseqs)
