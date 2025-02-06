@@ -463,6 +463,8 @@ class RadBxds:
         self.fd_ = None
         self.cts_ = None
         self.burstnoise = None
+        self.pointer = 0
+        self.shape = tuple()
         if filename is not None:
             self.open(filename, channel, stream, burstnoise, validonly)
 
@@ -503,6 +505,7 @@ class RadBxds:
         #self.mmbxds_ = None
 
         self.index_ = []
+        self.pointer = 0
 
         #---------------------
         # calculate file size
@@ -552,18 +555,31 @@ class RadBxds:
                 if lastbyte <= filesize:
                     self.index_.append(item + (ii,))
 
+        if len(self.index_):
+            self.shape = (len(self.index_), header.nsamp)
+
         # Setup burst denoising if in a channel that wants it
         if burstnoise is not None:
             self.burstnoise = BurstDenoiser(**burstnoise)
 
-
-    def size(self):
-        """ Return the number of traces for this channel """
-        return len(self.index_)
+    def __getattr__(self, k):
+        """ Implement ndarray attributes """
+        if k == 'size':
+            return self.shape[0] * self.shape[1]
+        elif k == 'ndim':
+            return len(self.shape)
+        elif k == 'dtype':
+            return '>i2'
+        elif k == 'nbytes':
+            return self.shape[0] * self.shape[1] * 2
+        elif k == 'T':
+            raise NotImplementedError('Transpose view is not yet implemented')
+        else:
+            raise AttributeError(k)
 
     def __len__(self):
         """ Return the number of traces for this channel """
-        return len(self.index_)
+        return 0 if len(self.shape) == 0 else self.shape[0]
 
 
     def __getitem__(self, idx):
@@ -609,6 +625,18 @@ class RadBxds:
 
         return data
 
+    def __iter__(self):
+        """ the class itself is the iterator """
+        return self
+
+    def __next__(self):
+        """ Return the next trace """
+        if self.pointer >= len(self.index_):
+            raise StopIteration
+
+        value = self[self.pointer]
+        self.pointer += 1
+        return value
 
 
     def ct(self, idx):
@@ -769,8 +797,23 @@ class RADjh1Bxds:
         #self.fd_ = open(filename, 'rb')
         self.mmbxds_ = np.memmap(filename, dtype='<i2', mode='r', shape=(ntraces, 3200))
 
-    def size(self):
-        return self.__len__()
+    def __getattr__(self, k):
+        """ Implement ndarray attributes """
+        if k == 'size':
+            return self.mmbxds_.shape[0] * self.mmbxds_.shape[1]
+        elif k == 'ndim':
+            return len(self.mmbxds_.shape)
+        elif k == 'dtype':
+            return '<i2'
+        elif k == 'nbytes':
+            return self.mmbxds_.shape[0] * self.mmbxds_.shape[1] * 2
+        elif k == 'shape':
+            return self.mmbxds_.shape
+        elif k == 'T':
+            raise NotImplementedError('Transpose view is not yet implemented')
+        else:
+            raise AttributeError(k)
+
 
     def __len__(self):
         """ Return the number of traces for this channel """

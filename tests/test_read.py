@@ -188,18 +188,16 @@ class TestGenCT(unittest.TestCase):
 
 class TestClass1(RadBxdsBase):
     """ Test the RadBxds class. """
-    def setUp(self):
+    @classmethod
+    def setUpClass(cls):    #def setUp(self):
         channel = 1
         pst, snm, bxds_input = list(read_testlist(TESTLIST0))[0]
-        self.rread = unfoc.RadBxds(bxds_input, channel=channel)
-
-    def tearDown(self):
-        self.rread.close()
+        cls.rread = unfoc.RadBxds(bxds_input, channel=channel)
 
     def test_indexing(self):
         """ Check that slicing works consistently with how numpy does it. """
         rread = self.rread
-        ntraces = rread.size()
+        ntraces = len(rread)
         self.assertGreater(ntraces, 1) # number of records
 
         for n in range(ntraces):
@@ -429,12 +427,66 @@ class TestClass1(RadBxdsBase):
             ct1 = self.rread.ct(slice(ii, ii+10))
             self.assertLessEqual(len(ct1), 10)
 
+    def test_iteration(self):
+        # Reach in and reset the iterator
+        self.rread.pointer = 0
+        counter = 0
+        for trace in self.rread:
+            counter += 1
+            self.assertTrue(isinstance(trace, np.ndarray))
+
+        self.assertEqual(counter, len(self.rread))
+
+class TestClassAttributes(unittest.TestCase):
+    """ Test dimensional attributes on a dataset of known size """
+    @classmethod
+    def setUpClass(cls):
+        """ we can reuse the rread object for all tests since it is readonly """
+        channel = 1
+        pst, snm, bxds_input = list(read_testlist(TESTLIST0))[0]
+        cls.rread = unfoc.RadBxds(bxds_input, channel=channel)
+        cls.expected_shape = (134676, 3437)
+
+    def test_size(self):
+        expected_size = self.expected_shape[0]*self.expected_shape[1]
+        self.assertEqual(self.rread.size, expected_size)
+
+    def test_shape(self):
+        self.assertEqual(self.rread.shape, self.expected_shape)
+
+    def test_ndim(self):
+        self.assertEqual(self.rread.ndim, 2)
+
+    def test_dtype(self):
+        self.assertEqual(self.rread.dtype[1:], 'i2')
+
+    def test_nbytes(self):
+        self.assertEqual(self.rread.nbytes, self.expected_shape[0]*self.expected_shape[1]*2)
+
+
+    def test_unimplemented(self):
+        with self.assertRaises(AttributeError):
+            self.rread.doesnotexist
+        with self.assertRaises(NotImplementedError):
+            self.rread.T
+
 class TestRADjh1Class(TestClass1):
     def setUp(self):
         channel = 1
         testlist1 = cwd / 'test_lists' / 'tests_radjh1.txt'
         pst, snm, bxds_input = list(read_testlist(testlist1))[0]
         self.rread = unfoc.RADjh1Bxds(bxds_input, channel=channel)
+
+class TestRADjh1ClassAttributes(TestClassAttributes):
+    """ Test dimensional attributes on a dataset of known size """
+    @classmethod
+    def setUpClass(cls):
+        channel = 1
+        testlist1 = cwd / 'test_lists' / 'tests_radjh1.txt'
+        pst, snm, bxds_input = list(read_testlist(testlist1))[0]
+        cls.rread = unfoc.RADjh1Bxds(bxds_input, channel=channel)
+        cls.expected_shape = (509136,3200)
+
 
 class TestRadBxds(RadBxdsBase):
     """ Run tests on many different bxdses """
