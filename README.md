@@ -83,6 +83,22 @@ they require some preprocessing to read the radargram.
 
 # Expected Input Data
 
+Expected input data is a bxds file of `RADnh3`, `RADnh5`, or `bxds1/bxds2` `RADjh1` radar system
+that has come from [breakout_elsa](https://github.com/UTIG/breakout_elsa) or similar.
+
+Each of these bxds files must have an associated `ct` text file or `ct.gz` gzip-compressed
+text file with ELSA `ct` metadata (timestamps and sequence numbers)
+
 
 # Output Data Format
 
+Output data files after pik1 pulse compression consist of binary array data with 4-byte
+big-endian signed integer samples.  Output files include:
+
+- `MagLoResIncoN` - binary array of radar magnitude data, dB scaled. By convention 1000*power in dB (if default `mag_scale_factor=20_000` is used)
+- `PhsLoResIncoN` - binary array of radar phase data, in units of radians * `2^24`.
+- `TraceNumbersN` - Text list of first ELSA sequence number used in each pulse-compressed radar trace in the binary arrays.
+
+MagLoResIncoN and PhsLoResIncoN typically have 3200 samples per trace.
+
+Semantic meaning of channel numbers are discussed in `docs/Multipol Data Format.pdf`.
