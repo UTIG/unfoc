@@ -446,6 +446,19 @@ def read_RADnhx_gen(bxds_filename:str, channel:int, stream:str=None, filepos:int
 
             yield Trace(channel, trace1, ctinfo)
 
+class RadBxdsIterator:
+    """ Iterator for RadBxds, Radjh1Bxds, RadBxdsEx """
+    def __init__(self, bxds):
+        self.idx = 0
+        self.bxds = bxds
+
+    def __next__(self):
+        """ Iterate over the first axis """
+        if self.idx >= len(self.bxds):
+            raise StopIteration
+        value = self.bxds[self.idx]
+        self.idx += 1
+        return value
 
 class RadBxds:
     """ Reader for random access to traces in a RADnh3 or RADnh5 bxds as numpy arrays
@@ -463,7 +476,6 @@ class RadBxds:
         self.fd_ = None
         self.cts_ = None
         self.burstnoise = None
-        self.pointer = 0
         self.shape = tuple()
         if filename is not None:
             self.open(filename, channel, stream, burstnoise, validonly)
@@ -505,7 +517,6 @@ class RadBxds:
         #self.mmbxds_ = None
 
         self.index_ = []
-        self.pointer = 0
 
         #---------------------
         # calculate file size
@@ -626,17 +637,8 @@ class RadBxds:
         return data
 
     def __iter__(self):
-        """ the class itself is the iterator """
-        return self
-
-    def __next__(self):
-        """ Return the next trace """
-        if self.pointer >= len(self.index_):
-            raise StopIteration
-
-        value = self[self.pointer]
-        self.pointer += 1
-        return value
+        """ Return new iterator """
+        return RadBxdsIterator(self)
 
 
     def ct(self, idx):
@@ -757,6 +759,11 @@ class RadBxdsEx:
         arr1 += arr2.astype(self.dtype, copy=False)
         return arr1
 
+    def __iter__(self):
+        """ Return new iterator """
+        return RadBxdsIterator(self)
+
+
 
     def ct(self, idx):
         """ Return the CT of the first channel """
@@ -831,8 +838,10 @@ class RADjh1Bxds:
         else:
             raise AttributeError(k)
 
-    # TODO: check getattr
-    # TODO: do iteration
+    def __iter__(self):
+        """ Return new iterator """
+        return RadBxdsIterator(self)
+
 
     def __len__(self):
         """ Return the number of traces for this channel """

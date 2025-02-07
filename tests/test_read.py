@@ -195,7 +195,25 @@ class RadBxdsTestLoader:
     def tearDownClass(cls):
         del cls.rread
 
-class TestClass1(RadBxdsTestLoader, RadBxdsBase):
+class IteratorTestComponent:
+    """ Tests for classes that support iteration """
+    def test_iteration(self):
+        """  make sure we can run two iterators on the same array concurrently,
+        independently """
+        for _ in range(2):
+            counter = 0
+            for trace1, trace2 in zip(self.rread, self.rread):
+                counter += 1
+                self.assertTrue(isinstance(trace1, np.ndarray))
+                self.assertTrue(isinstance(trace2, np.ndarray))
+                np.testing.assert_array_equal(trace1, trace2)
+
+        self.assertEqual(counter, len(self.rread))
+
+
+
+
+class TestClass1(RadBxdsTestLoader, RadBxdsBase, IteratorTestComponent):
     """ Test the RadBxds class. """
 
     def test_indexing(self):
@@ -431,17 +449,6 @@ class TestClass1(RadBxdsTestLoader, RadBxdsBase):
             ct1 = self.rread.ct(slice(ii, ii+10))
             self.assertLessEqual(len(ct1), 10)
 
-    def test_iteration(self):
-        # Reach in and reset the iterator
-        self.rread.pointer = 0
-        counter = 0
-        for trace in self.rread:
-            counter += 1
-            self.assertTrue(isinstance(trace, np.ndarray))
-
-        self.assertEqual(counter, len(self.rread))
-
-
 
 class TestClassAttributes(RadBxdsTestLoader, unittest.TestCase):
     """ Test dimensional attributes on a dataset of known size """
@@ -473,7 +480,7 @@ class TestClassAttributes(RadBxdsTestLoader, unittest.TestCase):
             self.rread.T
 
 class Radjh1TestLoader:
-    """ Component to load a RADjh1 class """
+    """ Component to load a RADjh1 test """
     @classmethod
     def setUpClass(cls):
         channel = 1
@@ -486,7 +493,7 @@ class Radjh1TestLoader:
     def tearDownClass(cls):
         del cls.rread
 
-class TestRADjh1Class(Radjh1TestLoader, TestClass1):
+class TestRADjh1Class(Radjh1TestLoader, TestClass1, IteratorTestComponent):
     """ Test general class methods on RADjh1 dataset """
     pass
 
@@ -545,14 +552,17 @@ class TestRadBxds(RadBxdsBase):
         pass
 
 
-class TestClassEx1(RadBxdsBase):
-    """ Test RadBxdsBase with two channels """
-    def setUp(self):
+class RadBxdsEx_2ch_Loader:
+    """ Load a RadBxdsEx object with a two-channel transect. """
+    @classmethod
+    def setUpClass(cls):
         p1cs = unfoc.get_utig_channels('LoResInco1', radar='MARFA')[0]
         pst, snm = 'DEV2/JKB2t/Y91a', 'RADnh5'
         bxds_input = WAIS / 'orig/xlob' / pst / snm / 'bxds'
-        self.rread = unfoc.RadBxdsEx(bxds_input, channels=p1cs)
+        cls.rread = unfoc.RadBxdsEx(bxds_input, channels=p1cs)
 
+class RadBxdsExBase:
+    """ Additional tests for the RadBxdsEx class """
     def test_ex_index(self):
         # single index
         for ii in range(len(self.rread)):
@@ -572,14 +582,24 @@ class TestClassEx1(RadBxdsBase):
             ct1 = self.rread.ct(slice(ii,ii+slicelen) )
             self.assertEqual(len(ct1), arr1.shape[0], msg=msg)
 
-class TestClassEx2(TestClassEx1):
-    """ Test RadBxdsBase with one channel.  Same tests but different channel spec """
-    def setUp(self):
+class TestClassEx2ch(RadBxdsEx_2ch_Loader, RadBxdsExBase, IteratorTestComponent, RadBxdsBase):
+    """ Test RadBxdsBase with two channels """
+    pass
+
+
+class RadBxdsEx_1ch_Loader:
+    """ Load a RadBxdsEx object with a one-channel transect. """
+    @classmethod
+    def setUpClass(cls):
         p1cs = unfoc.get_utig_channels('LoResInco5', radar='MARFA')[0]
         pst, snm = 'DEV2/JKB2t/Y91a', 'RADnh5'
         bxds_input = WAIS / 'orig/xlob' / pst / snm / 'bxds'
-        self.rread = unfoc.RadBxdsEx(bxds_input, channels=p1cs, dtype=np.double)
+        cls.rread = unfoc.RadBxdsEx(bxds_input, channels=p1cs, dtype=np.double)
 
+
+class TestClassEx1ch(RadBxdsEx_1ch_Loader, RadBxdsExBase, IteratorTestComponent, RadBxdsBase):
+    """ Test RadBxdsBase with one channel.  Same tests but different channel spec """
+    pass
 
 class RadBxdsExTestLoader:
     @classmethod
@@ -600,15 +620,19 @@ class TestRadBxdsExClassAttributes(RadBxdsExTestLoader, TestClassAttributes):
     pass
 
 
-class TestClassExNoise(TestClassEx1):
-    """ Test RadBxdsBase with the high sum gain channel and enable denoising """
-    def setUp(self):
+class NoiseTestLoader:
+    """ Load a RadBxdsEx object configured for noise suppresion """
+    @classmethod
+    def setUpClass(cls):
         p1cs = unfoc.get_utig_channels('LoResInco2', radar='MARFA')[0]
         p1cs = unfoc.enable_burstnoise(p1cs)
         pst, snm = 'DEV2/JKB2t/Y91a', 'RADnh5'
         bxds_input = WAIS / 'orig/xlob' / pst / snm / 'bxds'
-        self.rread = unfoc.RadBxdsEx(bxds_input, channels=p1cs)
+        cls.rread = unfoc.RadBxdsEx(bxds_input, channels=p1cs)
 
+class TestClassExNoise(NoiseTestLoader, RadBxdsExBase, RadBxdsBase):
+    """ Test RadBxdsBase with the high sum gain channel and enable denoising """
+    pass
 
 class TestOneMeter(unittest.TestCase):
     def test_1m_a(self):
