@@ -659,7 +659,7 @@ class RadBxdsEx:
     (currently only supports combining two channels with summation)
 
     """
-    def __init__(self, filename:str=None, channels=None, stream=None, dtype=None, validonly:bool=False, bxds_class=RadBxds):
+    def __init__(self, filename:str=None, channels=None, stream=None, dtype=None, validonly:bool=True, bxds_class=RadBxds):
         self.rbxds0_ = None
         self.rbxds1_ = None
         self.dtype = None
@@ -668,7 +668,7 @@ class RadBxdsEx:
         if filename is not None:
             self.open(filename, channels, stream, dtype, validonly)
 
-    def open(self, filename:str, channels, stream=None, dtype=None, validonly:bool=False):
+    def open(self, filename:str, channels, stream=None, dtype=None, validonly:bool=True):
         """
         filename: bxds file to load
         channels: list of channels to load (a PIK1ChannelSpec object)
@@ -683,13 +683,12 @@ class RadBxdsEx:
             # sum channels
             self.rbxds0_ = self.bxds_class_(filename, channels.chan0in, stream, burstnoise=channels.burstnoise_chan0, validonly=validonly)
             self.rbxds1_ = self.bxds_class_(filename, channels.chan1in, stream, burstnoise=channels.burstnoise_chan1, validonly=validonly)
-            self.len_ = min(len(self.rbxds0_), len(self.rbxds1_))
+            assert self.rbxds0_.shape == self.rbxds1_.shape, "Radar data for %s doesn't have same shape." % (filename)
         else:
             # If we're only doing one channel, it better be chan0
             assert channels.scalef0 == 1
             self.rbxds0_ = self.bxds_class_(filename, channels.chan0in, stream, burstnoise=channels.burstnoise_chan0, validonly=validonly)
             self.rbxds1_ = None
-            self.len_ = len(self.rbxds0_)
 
         if dtype is None:
             # Use '>i2' if not combining, otherwise '>i4'
@@ -709,7 +708,24 @@ class RadBxdsEx:
     def __len__(self):
         # We track len in an internal variable so that we return the right
         # number of CT
-        return self.len_
+        return self.rbxds0_.shape[0]
+
+    def __getattr__(self, k):
+        """ Implement ndarray attributes """
+        if k in ('size', 'shape', 'ndim'):
+            return getattr(self.rbxds0_, k)
+        elif k == 'nbytes':
+            if isinstance(self.dtype, str):
+                element_size = int(self.dtype[-1])
+            else:
+                dummy = np.empty(1, self.dtype)
+                element_size = dummy.dtype.itemsize
+            return self.rbxds0_.shape[0] * self.rbxds0_.shape[1] * element_size
+        elif k == 'T':
+            raise NotImplementedError('Transpose view is not yet implemented')
+        else:
+            raise AttributeError(k)
+
 
     def __getitem__(self, idx):
         """ Return data for selected radar records combined as an ndarray.
@@ -724,7 +740,8 @@ class RadBxdsEx:
             return arr1
 
         arr2 = self.rbxds1_[idx]
-
+        assert arr1.shape == arr2.shape
+        '''
         if arr1.shape != arr2.shape:
             # If they aren't the same size, use the smaller of the two
 
@@ -736,7 +753,7 @@ class RadBxdsEx:
                 arr2 = arr2[0:arr1.shape[0], :]
             else:
                 arr1 = arr1[0:arr2.shape[0], :]
-
+        '''
         arr1 += arr2.astype(self.dtype, copy=False)
         return arr1
 
@@ -745,7 +762,7 @@ class RadBxdsEx:
         """ Return the CT of the first channel """
         if isinstance(idx, slice):
             # Return the shorter of the two sequences
-            idx = slice(*idx.indices(self.len_))
+            idx = slice(*idx.indices(self.rbxds0_.shape[0]))
         return self.rbxds0_.ct(idx)
 
 class RADjh1Bxds:
@@ -814,6 +831,8 @@ class RADjh1Bxds:
         else:
             raise AttributeError(k)
 
+    # TODO: check getattr
+    # TODO: do iteration
 
     def __len__(self):
         """ Return the number of traces for this channel """
@@ -834,7 +853,7 @@ class RADjh1Bxds:
             self.cts_ = tuple(gen_ct(self.filename_))
 
         return self.cts_[idx]
-
+    # TODO: do iteration
 
 # This could be done but we don't need it.
 #class RADjh1BxdsEx(RadBxdsEx):

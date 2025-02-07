@@ -27,9 +27,6 @@ sys.path.insert(1, str(unfoc_path.absolute()))
 
 import unfoc
 
-#import unfoc.read as read
-#import unfoc.parse_channels as pc
-
 #TESTLIST = os.path.join(cwd, 'test_lists/available_radnh_bxds.txt')
 TESTLIST = cwd / 'test_lists' / 'tests_level1.txt'
 
@@ -166,17 +163,17 @@ class TestGenCT(unittest.TestCase):
                         bxdsfile2 = ptemp / bxdsfile.name
                         bxdsfile2.touch()
                         self.zcat_text(ctfile, ptemp / 'ct')
-                    for _ in unfoc.gen_ct(bxdsfile2, full=False):
-                        pass
-                    for _ in unfoc.gen_ct(bxdsfile2, full=True):
-                        pass
+                        for _ in unfoc.gen_ct(bxdsfile2, full=False):
+                            pass
+                        for _ in unfoc.gen_ct(bxdsfile2, full=True):
+                            pass
 
     def zcat_text(self, file_compressed: Path, file_plain: Path):
         """ Read a gzipped file and write it to a non-gzipped file """
         with gzip.open(file_compressed, 'rt') as fin, \
              open(file_plain, 'wt') as fout:
             for line in fin:
-                print(line, file=fout)
+                print(line, file=fout, end='')
 
     def gzip_text(self, file_plain: Path, file_compressed: Path):
         """ Compress text to gzip format """
@@ -185,14 +182,21 @@ class TestGenCT(unittest.TestCase):
             for line in fin:
                 print(line, file=fout)
 
-
-class TestClass1(RadBxdsBase):
-    """ Test the RadBxds class. """
+class RadBxdsTestLoader:
     @classmethod
-    def setUpClass(cls):    #def setUp(self):
+    def setUpClass(cls):
+        """ we can reuse the rread object for all tests since it is readonly """
         channel = 1
         pst, snm, bxds_input = list(read_testlist(TESTLIST0))[0]
         cls.rread = unfoc.RadBxds(bxds_input, channel=channel)
+        cls.expected_shape = (134676, 3437)
+
+    @classmethod
+    def tearDownClass(cls):
+        del cls.rread
+
+class TestClass1(RadBxdsTestLoader, RadBxdsBase):
+    """ Test the RadBxds class. """
 
     def test_indexing(self):
         """ Check that slicing works consistently with how numpy does it. """
@@ -437,15 +441,10 @@ class TestClass1(RadBxdsBase):
 
         self.assertEqual(counter, len(self.rread))
 
-class TestClassAttributes(unittest.TestCase):
+
+
+class TestClassAttributes(RadBxdsTestLoader, unittest.TestCase):
     """ Test dimensional attributes on a dataset of known size """
-    @classmethod
-    def setUpClass(cls):
-        """ we can reuse the rread object for all tests since it is readonly """
-        channel = 1
-        pst, snm, bxds_input = list(read_testlist(TESTLIST0))[0]
-        cls.rread = unfoc.RadBxds(bxds_input, channel=channel)
-        cls.expected_shape = (134676, 3437)
 
     def test_size(self):
         expected_size = self.expected_shape[0]*self.expected_shape[1]
@@ -458,10 +457,13 @@ class TestClassAttributes(unittest.TestCase):
         self.assertEqual(self.rread.ndim, 2)
 
     def test_dtype(self):
-        self.assertEqual(self.rread.dtype[1:], 'i2')
+        dtype1 = self.rread.dtype
+        if isinstance(dtype1, str):
+            self.assertEqual(dtype1[1:], 'i2')
 
     def test_nbytes(self):
-        self.assertEqual(self.rread.nbytes, self.expected_shape[0]*self.expected_shape[1]*2)
+        itemsize = getattr(self, 'itemsize', 2)
+        self.assertEqual(self.rread.nbytes, self.expected_shape[0]*self.expected_shape[1]*itemsize)
 
 
     def test_unimplemented(self):
@@ -470,22 +472,28 @@ class TestClassAttributes(unittest.TestCase):
         with self.assertRaises(NotImplementedError):
             self.rread.T
 
-class TestRADjh1Class(TestClass1):
-    def setUp(self):
-        channel = 1
-        testlist1 = cwd / 'test_lists' / 'tests_radjh1.txt'
-        pst, snm, bxds_input = list(read_testlist(testlist1))[0]
-        self.rread = unfoc.RADjh1Bxds(bxds_input, channel=channel)
-
-class TestRADjh1ClassAttributes(TestClassAttributes):
-    """ Test dimensional attributes on a dataset of known size """
+class Radjh1TestLoader:
+    """ Component to load a RADjh1 class """
     @classmethod
     def setUpClass(cls):
         channel = 1
         testlist1 = cwd / 'test_lists' / 'tests_radjh1.txt'
         pst, snm, bxds_input = list(read_testlist(testlist1))[0]
         cls.rread = unfoc.RADjh1Bxds(bxds_input, channel=channel)
-        cls.expected_shape = (509136,3200)
+        cls.expected_shape = (509136, 3200)
+
+    @classmethod
+    def tearDownClass(cls):
+        del cls.rread
+
+class TestRADjh1Class(Radjh1TestLoader, TestClass1):
+    """ Test general class methods on RADjh1 dataset """
+    pass
+
+
+class TestRADjh1ClassAttributes(Radjh1TestLoader, TestClassAttributes):
+    """ Test dimensional attributes on a RADjh1 dataset """
+    pass
 
 
 class TestRadBxds(RadBxdsBase):
@@ -571,6 +579,26 @@ class TestClassEx2(TestClassEx1):
         pst, snm = 'DEV2/JKB2t/Y91a', 'RADnh5'
         bxds_input = WAIS / 'orig/xlob' / pst / snm / 'bxds'
         self.rread = unfoc.RadBxdsEx(bxds_input, channels=p1cs, dtype=np.double)
+
+
+class RadBxdsExTestLoader:
+    @classmethod
+    def setUpClass(cls):
+        p1cs = unfoc.get_utig_channels('LoResInco5', radar='MARFA')[0]
+        pst, snm = 'DEV2/JKB2t/Y91a', 'RADnh5'
+        bxds_input = WAIS / 'orig/xlob' / pst / snm / 'bxds'
+        cls.rread = unfoc.RadBxdsEx(bxds_input, channels=p1cs, dtype=np.double)
+        cls.expected_shape = (55916, 3200)
+        cls.itemsize = 8
+
+    @classmethod
+    def tearDownClass(cls):
+        del cls.rread
+
+class TestRadBxdsExClassAttributes(RadBxdsExTestLoader, TestClassAttributes):
+    """ Test dimensional attributes on a RadBxdsEx object """
+    pass
+
 
 class TestClassExNoise(TestClassEx1):
     """ Test RadBxdsBase with the high sum gain channel and enable denoising """
