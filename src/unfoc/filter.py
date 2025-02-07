@@ -30,7 +30,7 @@ from .burst_noise import denoise_burst
 
 def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
           blanking, bandpass, scale=20000, output_phases=False, nmax=0, processes=1,
-          denoise=None):
+          denoise=None, buffering:int=-1):
     """ Generate all requested output channels of unfoc data and write it to the
     specified output directory with the standard file naming.
 
@@ -57,7 +57,7 @@ def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
         channel_specs = channels
     delay = 0.01 if processes > 1 else 0.0 # cosmetically delay so channels output in same order
     unfoc_args = lambda p1cs: (outdir, infile, p1cs, output_samples, stackdepth, incodepth,
-                       blanking, bandpass, scale, output_phases, nmax, (p1cs.chanout-1)*delay)
+                       blanking, bandpass, scale, output_phases, nmax, (p1cs.chanout-1)*delay, buffering)
 
     if denoise == 'burst':
         channel_specs1 = map(enable_burstnoise, channel_specs)
@@ -80,7 +80,7 @@ def unfoc_chan_(args):
 
 def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
           blanking, bandpass, scale=20000, output_phases=False, nmax=0, delay=0.,
-          burst_noise=None):
+          burst_noise=None, buffering:int=-1):
 
     """ Generate one output channel of unfoc data
     outdir: output directory where data will be placed
@@ -109,7 +109,7 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
     ref_chirp *= hfilter
 
     # Setup bxds file reader to get the correct files.
-    sumchannel_gen, output_tag = setup_reader(infile, p1cs)
+    sumchannel_gen, output_tag = setup_reader(infile, p1cs, buffering=buffering)
 
     # Stack traces coherently
     coherent_chunker = chunks(sumchannel_gen, size=stackdepth)
@@ -140,7 +140,7 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
 
 
 def unfoc_1m_chan(outdir, infile, chanout, output_samples, stackdepth, incodepth,
-          blanking, bandpass, scale=20000, output_phases=False, nmax=0):
+          blanking, bandpass, scale=20000, output_phases=False, nmax=0, buffering:int=-1):
 
     """ Generate one output channel of unfoc 1-meter-spaced data
     See unfoc_chan for parameters
@@ -150,7 +150,7 @@ def unfoc_1m_chan(outdir, infile, chanout, output_samples, stackdepth, incodepth
 
     p1cs = PIK1ChannelSpec(chanout, 0, 0, 0, 0)
     return unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
-                      blanking, bandpass, scale, output_phases, nmax)
+                      blanking, bandpass, scale, output_phases, nmax, buffering=buffering)
 
 
 def enable_burstnoise(p1cs: PIK1ChannelSpec):
@@ -247,7 +247,7 @@ def denoise_and_dechirp(coherent_data, *args, **kwargs):
     return dechirped, nrecs, ctinfos
 
 
-def setup_reader(bxdsfile, channel_specs, input_type=None):
+def setup_reader(bxdsfile, channel_specs, input_type=None, buffering:int=-1):
     """ Return value: tuple(trace generator, output_tag) """
     if input_type is None:
         # auto-detect input type
@@ -260,10 +260,10 @@ def setup_reader(bxdsfile, channel_specs, input_type=None):
         return read.read_1m_gen(bxdsfile, channel=channel_specs.chanout), 'HiResInco'
     else:
         assert input_type == 'orig'
-        return setup_bxds_reader(bxdsfile, channel_specs), 'LoResInco'
+        return setup_bxds_reader(bxdsfile, channel_specs, buffering=buffering), 'LoResInco'
 
 
-def setup_bxds_reader(bxdsfile, channel_specs):
+def setup_bxds_reader(bxdsfile, channel_specs, buffering:int):
     """
     Set up the generators for reading from a bxds file and producing
     pairwise-summed traces or individual unsummed traces
@@ -279,11 +279,11 @@ def setup_bxds_reader(bxdsfile, channel_specs):
         # sum channels
 
         # Read traces from first channel of a bxds file
-        channel_gen0 = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan0in)
+        channel_gen0 = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan0in, buffering=buffering)
         if channel_specs.burstnoise_chan0 is not None:
             channel_gen0 = denoise_burst(channel_gen0, **channel_specs.burstnoise_chan0)
         # Read traces from another channel of a bxds file
-        channel_gen1 = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan1in)
+        channel_gen1 = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan1in, buffering=buffering)
         if channel_specs.burstnoise_chan1 is not None:
             channel_gen1 = denoise_burst(channel_gen1, **channel_specs.burstnoise_chan1)
         # Combine two channels into one, and rewrite the output channel number
@@ -291,7 +291,7 @@ def setup_bxds_reader(bxdsfile, channel_specs):
     else:
         # If we're only doing one channel, it better be chan0
         assert channel_specs.scalef0 == 1, "If using one channel, use chan0"
-        reader_gen = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan0in)
+        reader_gen = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan0in, buffering=buffering)
         if channel_specs.burstnoise_chan0 is not None:
             reader_gen = denoise_burst(reader_gen, **channel_specs.burstnoise_chan0)
 

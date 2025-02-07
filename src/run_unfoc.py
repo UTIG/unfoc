@@ -38,6 +38,7 @@ def setup_common_args(parser):
     parser.add_argument('--denoise', required=False, default=None, choices=('burst'),
                             help='Enable burst denoising filter for high gain channels')
 
+    parser.add_argument('--buffering', default=10240, type=int, help="File buffering parameter")
     parser.add_argument('--nmax', default=0, type=int,
                         help="Maximum number of stacks to output (usually used for testing)")
     parser.add_argument('--debug', action='store_true',
@@ -67,7 +68,7 @@ def main():
 
     unfoc.unfoc(args.outdir, args.input, args.channels, args.output_samples, args.stackdepth, args.incodepth,
           args.blanking, args.bandpass, scale=args.scale, output_phases=False, nmax=args.nmax, processes=args.jobs,
-          denoise=args.denoise)
+          denoise=args.denoise, buffering=args.buffering)
 
 
 if __name__ == "__main__":

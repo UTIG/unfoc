@@ -287,7 +287,8 @@ def radar_index_summary(bxdsfile:str, stream=None):
 
 
 
-def index_RADnhx_bxds(input_filename, stream=None, full_header=False, filepos:int=None):
+def index_RADnhx_bxds(input_filename, stream=None, full_header=False, filepos:int=None,
+                      buffering:int=-1):
     # type: (str) -> Generator[tuple]
     """ Read the positions of packets within a RADnh3 and RADnh5 bxds file
     and return these as a generator
@@ -408,7 +409,8 @@ def index_RADnhx_bxds_mmap_(input_filename, stream=None, full_header:bool=False)
 
 
 
-def read_RADnhx_gen(bxds_filename:str, channel:int, stream:str=None, filepos:int=None):
+def read_RADnhx_gen(bxds_filename:str, channel:int, stream:str=None, filepos:int=None,
+                    buffering:int=-1):
     """ Return a sequence of traces from only one channel, from a bxds
     channel offset is a one-based index.
 
@@ -424,9 +426,9 @@ def read_RADnhx_gen(bxds_filename:str, channel:int, stream:str=None, filepos:int
     # Filter for listed channel offset in radar record
     chfilter = (channel - 1) - choff1
 
-    with open(bxds_filename, 'rb') as fd: # for reading traces
+    with open(bxds_filename, 'rb', buffering=buffering) as fd: # for reading traces
         ctgen = gen_ct(bxds_filename)
-        radgen = index_RADnhx_bxds(bxds_filename, stream, filepos)
+        radgen = index_RADnhx_bxds(bxds_filename, stream, filepos, buffering=buffering)
         for radinfo, ctinfo in zip(radgen, ctgen):
             fpos, headerlen, rchoff, nsamp = radinfo
             if rchoff == 0xff:
