@@ -465,8 +465,12 @@ class TestClassAttributes(RadBxdsTestLoader, unittest.TestCase):
 
     def test_dtype(self):
         dtype1 = self.rread.dtype
+        # make sure this evaluates to a np datatype
         if isinstance(dtype1, str):
-            self.assertEqual(dtype1[1:], 'i2')
+            itemsize = np.dtype(dtype1).itemsize
+        else:
+            itemsize = dtype1.itemsize
+        self.assertGreater(itemsize, 0)
 
     def test_nbytes(self):
         itemsize = getattr(self, 'itemsize', 2)
@@ -607,7 +611,7 @@ class RadBxdsExTestLoader:
         p1cs = unfoc.get_utig_channels('LoResInco5', radar='MARFA')[0]
         pst, snm = 'DEV2/JKB2t/Y91a', 'RADnh5'
         bxds_input = WAIS / 'orig/xlob' / pst / snm / 'bxds'
-        cls.rread = unfoc.RadBxdsEx(bxds_input, channels=p1cs, dtype=np.double)
+        cls.rread = unfoc.RadBxdsEx(bxds_input, channels=p1cs, dtype='d')
         cls.expected_shape = (55916, 3200)
         cls.itemsize = 8
 

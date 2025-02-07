@@ -718,10 +718,9 @@ class RadBxdsEx:
             return getattr(self.rbxds0_, k)
         elif k == 'nbytes':
             if isinstance(self.dtype, str):
-                element_size = int(self.dtype[-1])
+                element_size = np.dtype(self.dtype).itemsize
             else:
-                dummy = np.empty(1, self.dtype)
-                element_size = dummy.dtype.itemsize
+                element_size = self.dtype.itemsize
             return self.rbxds0_.shape[0] * self.rbxds0_.shape[1] * element_size
         elif k == 'T':
             raise NotImplementedError('Transpose view is not yet implemented')
