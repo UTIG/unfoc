@@ -24,8 +24,9 @@ import h5py
 sys.path.insert(1, '../src')
 import unfoc
 
-COMPRESSION_KWARGS = {'compression': 'gzip', 'compression_opts': 9}
-
+#COMPRESSION_KWARGS = {'compression': 'lzf'} #, 'compression_opts': 1}
+COMPRESSION_KWARGS = {'compression': 'gzip', 'compression_opts': 1}
+METADATA_KWARGS = {'chunks': True}
 
 def main():
     #WAIS = os.getenv('WAIS')
@@ -53,29 +54,43 @@ def export_hdf5(bxdsfile, outfile):
     # Determine file layout
     idx_summary = unfoc.radar_index_summary(bxdsfile)
     logging.debug("%r", idx_summary)
-    rformat = idx_summary['format']
 
     Path(outfile).parent.mkdir(exist_ok=True, parents=True)
     with h5py.File(outfile, 'w') as f:
         # Write attributes for PST
         write_attributes(f, idx_summary)
 
-        radar_index = write_metadata(f, bxdsfile, idx_summary, rformat=rformat)
-        write_radar(f, bxdsfile, radar_index, rformat=rformat)
+        radar_index = write_metadata(f, bxdsfile, idx_summary, rformat=idx_summary['format'])
+        write_radar(f, bxdsfile, radar_index, rformat=idx_summary['format'])
 
 
 
-def write_radar(f, bxdsfile:Path, radar_index, rformat:str, chunksize:int=1000, limit:int=None):
-    """ Write per-trace data including samples and stack timing statistics """
+def write_radar(f, bxdsfile:Path, radar_index, rformat:str, chunksize:int=800, limit:int=None):
+    """ Write per-trace data including samples and stack timing statistics
+    f is the hdf5 filehandle
+    bxdsfile is the path to the input radar data
+    radar_index is a numpy structured array with record position and validity
+    rformat is the radar format, such as 'RADnh3' or 'RADnh5'
+    chunksize is the chunk size in traces for writing to HDF5
+    limit, if provided, stops writing after this many chunks
+    """
     logging.debug("write_radar from %s", str(bxdsfile))
     shape = (f.attrs['number_of_traces'],
              f.attrs['number_of_digitizers'],
              f.attrs['channels_per_digitizer'],
              f.attrs['samples_per_trace'])
 
+    assert rformat in ('RADnh3', 'RADnh5'), "Unknown radar format"
+
+    # For the chunk size, we write each digitizer and channel to its
+    # own chunk since we often expect to read channels individually.
+    # We also subdivide the fast time axis into 4 to allow for partial
+    # horizontal access.
+    # This is just a guess at a good value and
+    # could stand to have some performance measurement.
     f.create_dataset('rad/traces', shape=shape,
                      dtype='>i2',
-                     chunks=(chunksize, shape[1], shape[2], shape[3]),
+                     chunks=(chunksize, 1, 1, shape[3] >> 2),
                      # Compress with gzip, but don't try that hard
                      **COMPRESSION_KWARGS
                      )
@@ -92,19 +107,21 @@ def write_radar(f, bxdsfile:Path, radar_index, rformat:str, chunksize:int=1000, 
     metadata_rtime = np.zeros(shape=shape[0:2] + (4,), dtype='>f')
 
 
-    write_chunks = f['rad/traces'].iter_chunks()
-    #for s in write_chunks:
     nsamples = shape[-1]
+    nchunks = shape[0] // chunksize + (1 if (shape[0] % chunksize > 0) else 0)
     with open(bxdsfile, 'rb') as fhbxds:
-        for chunknum, s in enumerate(write_chunks):
-            logging.debug("chunk %d %r", chunknum, s)
-            chunk = np.empty(f['rad/traces'][s].shape, dtype='>i2')
-
-            for ii, tracenum in enumerate(range(s[0].start, s[0].stop, s[0].step)):
-                for jj, digitizernum in enumerate(range(s[1].start, s[1].stop, s[1].step)):
+        # Iterate over chunks of traces
+        for chunknum, chunkstart in enumerate(range(0, shape[0], chunksize)):
+            chunkend = min(chunkstart+chunksize, shape[0])
+            chunk_shape = (chunkend - chunkstart,) + shape[1:]
+            logging.debug("chunk %d of %d %r", chunknum+1, nchunks, chunk_shape)
+            chunk = np.empty(chunk_shape, dtype='>i2')
+            # Iterate over traces within chunk
+            for ii, tracenum in enumerate(range(chunkstart, chunkend)):
+                # iterate over digitizers
+                for jj, digitizernum in enumerate(range(chunk_shape[1])):
                     fpos, valid = radar_index[tracenum, digitizernum]
-
-                    if not valid:
+                    if not valid: # if invalid, fill with zeros
                         chunk[ii, jj, ...] = 0
                         metadata_rtime[tracenum, digitizernum, :] = 0.
                         continue
@@ -113,29 +130,33 @@ def write_radar(f, bxdsfile:Path, radar_index, rformat:str, chunksize:int=1000, 
                         fhbxds.seek(int(fpos) - 4*8) # back up so we can get the rtimes
                         rtimes = np.fromfile(fhbxds, dtype='>d', count=4)
                         metadata_rtime[tracenum, digitizernum, :] = rtimes
-                    else:
-                        fhbxds.seek(int(fpos)) # back up so we can get the rtimes
+                    else: # RADnh3
+                        fhbxds.seek(int(fpos)) # seek to this record
 
-                    traces = np.fromfile(fhbxds, dtype='>i2', count=2*nsamples).reshape((2, nsamples))
-                    chunk[ii, jj, :, :] = traces
+                    traces = np.fromfile(fhbxds, dtype='>i2', count=2*nsamples)
+                    chunk[ii, jj, :, :] = traces.reshape((2, nsamples))
 
-            f['rad/traces'][s] = chunk
+            f['rad/traces'][chunkstart:chunkend, :, :, :] = chunk
 
             if limit is not None and chunknum >= limit:
                 break
 
     if rformat == 'RADnh5':
         # Write the rtimes arrays
-        f.create_dataset('rad/stack_timing/std_dev', data=metadata_rtime[:, :, 0:2], **COMPRESSION_KWARGS)
-        f['rad/stack_timing/std_dev'].attrs['description'] = 'Standard deviation of interval between timestamps of traces used in onboard stack, in seconds'
-        f.create_dataset('rad/stack_timing/mean', data=metadata_rtime[:, :, 2:4], **COMPRESSION_KWARGS)
-        f['rad/stack_timing/mean'].attrs['description'] = 'Mean of interval between timestamps of traces used in onboard stack, in seconds'
+        f.create_dataset('rad/stack_timing/std_dev', data=metadata_rtime[:, :, 0:2], 
+                         **METADATA_KWARGS, **COMPRESSION_KWARGS)
+        f['rad/stack_timing/std_dev'].attrs['description'] = \
+            'Standard deviation of interval between timestamps of traces used in onboard stack, in seconds'
+        f.create_dataset('rad/stack_timing/mean', data=metadata_rtime[:, :, 2:4],
+                         **METADATA_KWARGS, **COMPRESSION_KWARGS)
+        f['rad/stack_timing/mean'].attrs['description'] = \
+            'Mean of interval between timestamps of traces used in onboard stack, in seconds'
 
     # Write the validity array
     traces_valid = np.zeros(shape[0], dtype='u1')
     for digitizernum in range(shape[1]):
         traces_valid += radar_index['valid'][:, digitizernum] << digitizernum
-    f.create_dataset('rad/traces_valid', data=traces_valid, **COMPRESSION_KWARGS)
+    f.create_dataset('rad/traces_valid', data=traces_valid, **METADATA_KWARGS, **COMPRESSION_KWARGS)
     f['rad/traces_valid'].attrs['description'] = \
         'Each element is a bit vector indicating digitizer data are valid. ' \
         'The least significant bit corresponds to the first digitizer. ' \
@@ -259,7 +280,7 @@ the choff field indicates that exactly two channels are being digitized.
     for (title, name), _ in ct_dtype:
         name1 = name.replace('__', '/') # put in a subgroup
         logging.debug("writing %s (%s)", name1, title)
-        f.create_dataset(name1, data=metadata_ct[name], **COMPRESSION_KWARGS)
+        f.create_dataset(name1, data=metadata_ct[name], **METADATA_KWARGS, **COMPRESSION_KWARGS)
         f[name1].attrs['description'] = title
 
 
@@ -267,7 +288,7 @@ the choff field indicates that exactly two channels are being digitized.
         if name == 'resvd2':
             continue
         logging.debug("writing %s (%s)", name, title)
-        f.create_dataset(name, data=metadata[name], **COMPRESSION_KWARGS)
+        f.create_dataset(name, data=metadata[name], **METADATA_KWARGS, **COMPRESSION_KWARGS)
         f[name].attrs['description'] = title
 
     return radar_index
