@@ -21,6 +21,7 @@ import mmap
 
 import numpy as np
 
+# parse_channels
 from unfoc.parse_channels import get_utig_channels, PIK1ChannelSpec, burstnoise6
 from unfoc.write import PIK1Output, IncoherentTrace
 import unfoc.dechirp as dechirp
@@ -275,15 +276,17 @@ def setup_bxds_reader(bxdsfile, channel_specs, buffering:int):
     assert channel_specs.scalef0 == 0 or channel_specs.scalef0 == 1
     assert channel_specs.scalef1 == 0 or channel_specs.scalef1 == 1
 
+    rec0, fpos0, rseq0, nchan = read.sync_radar_start(bxdsfile)
+
     if channel_specs.scalef0 == 1 and channel_specs.scalef1 == 1:
         # sum channels
 
         # Read traces from first channel of a bxds file
-        channel_gen0 = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan0in, buffering=buffering)
+        channel_gen0 = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan0in, filepos=fpos0, buffering=buffering)
         if channel_specs.burstnoise_chan0 is not None:
             channel_gen0 = denoise_burst(channel_gen0, **channel_specs.burstnoise_chan0)
         # Read traces from another channel of a bxds file
-        channel_gen1 = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan1in, buffering=buffering)
+        channel_gen1 = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan1in, filepos=fpos0, buffering=buffering)
         if channel_specs.burstnoise_chan1 is not None:
             channel_gen1 = denoise_burst(channel_gen1, **channel_specs.burstnoise_chan1)
         # Combine two channels into one, and rewrite the output channel number
@@ -291,7 +294,7 @@ def setup_bxds_reader(bxdsfile, channel_specs, buffering:int):
     else:
         # If we're only doing one channel, it better be chan0
         assert channel_specs.scalef0 == 1, "If using one channel, use chan0"
-        reader_gen = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan0in, buffering=buffering)
+        reader_gen = read.read_RADnhx_gen(bxdsfile, channel=channel_specs.chan0in, filepos=fpos0, buffering=buffering)
         if channel_specs.burstnoise_chan0 is not None:
             reader_gen = denoise_burst(reader_gen, **channel_specs.burstnoise_chan0)
 
