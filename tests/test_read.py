@@ -188,7 +188,8 @@ class RadBxdsTestLoader:
         """ we can reuse the rread object for all tests since it is readonly """
         channel = 1
         pst, snm, bxds_input = list(read_testlist(TESTLIST0))[0]
-        cls.rread = unfoc.RadBxds(bxds_input, channel=channel)
+        cls.bxds_input = bxds_input
+        cls.rread = unfoc.RadBxds(cls.bxds_input, channel=channel)
         cls.expected_shape = (134676, 3437)
 
     @classmethod
@@ -450,6 +451,42 @@ class TestClass1(RadBxdsTestLoader, RadBxdsBase, IteratorTestComponent):
             self.assertLessEqual(len(ct1), 10)
 
 
+    def test_save_index(self):
+        """ Save and load an index 
+        """
+        with tempfile.TemporaryDirectory() as tempdir:
+            indexout = Path(tempdir) / 'index'
+            trace = self.rread[2]
+            self.rread.save_index(indexout)
+
+            traces_old = self.rread[2:4]
+
+
+            old_index = self.rread.index_
+            self.rread.index_ = None
+            try:
+                self.rread.load_index(indexout)
+                traces = self.rread[2:4]
+                # Try to do something that uses the index
+                np.testing.assert_equal(traces_old, traces)
+            finally:
+                # restore old index if anything bad happens
+                self.rread.index_ = old_index
+
+
+            # Create a brand new object from the old one to exercise the open f unction
+            classtype = self.rread.__class__
+            rread = classtype(self.bxds_input, channel=1, indexfile=indexout)
+            traces = self.rread[2:4]
+            # might not have exactly the same contents since we picked a different channel, but
+            # the dimensions ought to be the same
+            assert traces.shape == traces_old.shape, "Unexpected change in dimensions"
+
+
+
+
+
+
 class TestClassAttributes(RadBxdsTestLoader, unittest.TestCase):
     """ Test dimensional attributes on a dataset of known size """
 
@@ -489,8 +526,8 @@ class Radjh1TestLoader:
     def setUpClass(cls):
         channel = 1
         testlist1 = cwd / 'test_lists' / 'tests_radjh1.txt'
-        pst, snm, bxds_input = list(read_testlist(testlist1))[0]
-        cls.rread = unfoc.RADjh1Bxds(bxds_input, channel=channel)
+        pst, snm, cls.bxds_input = list(read_testlist(testlist1))[0]
+        cls.rread = unfoc.RADjh1Bxds(cls.bxds_input, channel=channel)
         cls.expected_shape = (509136, 3200)
 
     @classmethod
@@ -562,8 +599,8 @@ class RadBxdsEx_2ch_Loader:
     def setUpClass(cls):
         p1cs = unfoc.get_utig_channels('LoResInco1', radar='MARFA')[0]
         pst, snm = 'DEV2/JKB2t/Y91a', 'RADnh5'
-        bxds_input = WAIS / 'orig/xlob' / pst / snm / 'bxds'
-        cls.rread = unfoc.RadBxdsEx(bxds_input, channels=p1cs)
+        cls.bxds_input = WAIS / 'orig/xlob' / pst / snm / 'bxds'
+        cls.rread = unfoc.RadBxdsEx(cls.bxds_input, channels=p1cs)
 
 class RadBxdsExBase:
     """ Additional tests for the RadBxdsEx class """
@@ -597,8 +634,8 @@ class RadBxdsEx_1ch_Loader:
     def setUpClass(cls):
         p1cs = unfoc.get_utig_channels('LoResInco5', radar='MARFA')[0]
         pst, snm = 'DEV2/JKB2t/Y91a', 'RADnh5'
-        bxds_input = WAIS / 'orig/xlob' / pst / snm / 'bxds'
-        cls.rread = unfoc.RadBxdsEx(bxds_input, channels=p1cs, dtype=np.double)
+        cls.bxds_input = WAIS / 'orig/xlob' / pst / snm / 'bxds'
+        cls.rread = unfoc.RadBxdsEx(cls.bxds_input, channels=p1cs, dtype=np.double)
 
 
 class TestClassEx1ch(RadBxdsEx_1ch_Loader, RadBxdsExBase, IteratorTestComponent, RadBxdsBase):
@@ -610,8 +647,8 @@ class RadBxdsExTestLoader:
     def setUpClass(cls):
         p1cs = unfoc.get_utig_channels('LoResInco5', radar='MARFA')[0]
         pst, snm = 'DEV2/JKB2t/Y91a', 'RADnh5'
-        bxds_input = WAIS / 'orig/xlob' / pst / snm / 'bxds'
-        cls.rread = unfoc.RadBxdsEx(bxds_input, channels=p1cs, dtype='d')
+        cls.bxds_input = WAIS / 'orig/xlob' / pst / snm / 'bxds'
+        cls.rread = unfoc.RadBxdsEx(cls.bxds_input, channels=p1cs, dtype='d')
         cls.expected_shape = (55916, 3200)
         cls.itemsize = 8
 
@@ -631,8 +668,8 @@ class NoiseTestLoader:
         p1cs = unfoc.get_utig_channels('LoResInco2', radar='MARFA')[0]
         p1cs = unfoc.enable_burstnoise(p1cs)
         pst, snm = 'DEV2/JKB2t/Y91a', 'RADnh5'
-        bxds_input = WAIS / 'orig/xlob' / pst / snm / 'bxds'
-        cls.rread = unfoc.RadBxdsEx(bxds_input, channels=p1cs)
+        cls.bxds_input = WAIS / 'orig/xlob' / pst / snm / 'bxds'
+        cls.rread = unfoc.RadBxdsEx(cls.bxds_input, channels=p1cs)
 
 class TestClassExNoise(NoiseTestLoader, RadBxdsExBase, RadBxdsBase):
     """ Test RadBxdsBase with the high sum gain channel and enable denoising """

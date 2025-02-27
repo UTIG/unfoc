@@ -45,6 +45,7 @@ from pathlib import Path
 import struct
 import gzip
 import mmap
+import pickle
 
 import numpy as np
 
@@ -55,15 +56,16 @@ from .burst_noise import BurstDenoiser
 
 __version__ = '2.1.0'
 
+radnh3_header = namedtuple('radnh3_header', 'nsamp nchan vr0 vr1 choff ver resvd2')
+radnh5_header = namedtuple('radnh5_header', 'nsamp nchan vr0 vr1 choff ver resvd2 absix relix xinc rseq scount tscount')
+
 HEADER_FORMATS = {
     'RADnh3': {
-        'header_t': namedtuple('radnh3_header',
-                              'nsamp nchan vr0 vr1 choff ver resvd2'),
+        'header_t': radnh3_header,
         'fmtstr':  '>HBBBBBB',
     },
     'RADnh5': {
-        'header_t': namedtuple('radnh5_header',
-                              'nsamp nchan vr0 vr1 choff ver resvd2 absix relix xinc rseq scount tscount'),
+        'header_t': radnh5_header,
         'fmtstr': '>HBBBBBBddfLHL',
     }
 }
@@ -303,8 +305,8 @@ def index_RADnhx_bxds(input_filename, stream=None, full_header=False, filepos:in
     if stream is None:
         stream = get_radar_stream(input_filename)
 
-    if stream not in HEADER_FORMATS: # pragma: no cover
-        raise ValueError("Invalid stream type for file: %s" % input_filename)
+    if stream not in HEADER_FORMATS:
+        raise ValueError("Invalid stream type %r for file: %s" % (stream, input_filename))
 
     header_t = HEADER_FORMATS[stream]['header_t']
     fmtstr = HEADER_FORMATS[stream]['fmtstr']
@@ -469,7 +471,7 @@ class RadBxds:
     
     """
     def __init__(self, filename:str=None, channel:int=None, stream=None, burstnoise=None,
-                 validonly=False):
+                 validonly=False, indexfile:str=None):
         """ Initialize the reader to access one channel's records
         if burstnoise is a dictionary, pass this to the burst noise calculation
         """
@@ -480,7 +482,7 @@ class RadBxds:
         self.burstnoise = None
         self.shape = tuple()
         if filename is not None:
-            self.open(filename, channel, stream, burstnoise, validonly)
+            self.open(filename, channel, stream, burstnoise, validonly, indexfile)
 
     def __del__(self):
         self.close()
@@ -497,7 +499,7 @@ class RadBxds:
 
 
     def open(self, filename:str, channel:int, stream=None, burstnoise=None,
-             validonly:bool=False):
+             validonly:bool=False, indexfile:str=None):
         """ Open the bxds and load record index for bxds
         This ignores sequence numbers and assumes that there are no
         out-of-order radar records within a channel.
@@ -518,7 +520,35 @@ class RadBxds:
         self.fd_ = open(filename, 'rb')
         #self.mmbxds_ = None
 
-        self.index_ = []
+        if indexfile is not None:
+            self.load_index(indexfile)
+        else:
+            self.make_index(validonly=validonly, stream=stream)
+
+        # Channel offset that we are expecting to filter for.
+        choff = self.channel0_ - (self.channel0_ & 1)
+        if len(self.index_[choff]):
+            # pick an arbitrary header and assume nsamples is the same for all
+            header = self.index_[choff][-1][2]
+            self.shape = (len(self.index_[choff]), header.nsamp)
+        # otherwise should we set it to empty tuple?
+
+
+        # Setup burst denoising if in a channel that wants it
+        if burstnoise is not None:
+            self.burstnoise = BurstDenoiser(**burstnoise)
+
+
+    def make_index(self, validonly:bool, stream:str=None):
+        """ Make index data from data in the file descriptor 
+        
+        """
+        # save all the channels but in a dictionary of lists
+        # then we can save this dictionary to the pickle file
+        # or perhaps make it a memmap
+        # see how this squares against the HDF5 index example
+        #@@self.index_ = []
+        self.index_ = defaultdict(list)
 
         #---------------------
         # calculate file size
@@ -527,7 +557,7 @@ class RadBxds:
         filesize = self.fd_.tell()
         self.fd_.seek(prev, 0)
         #---------------------
-
+        filename = self.fd_.name
         if stream is None:
             stream = get_radar_stream(filename)
 
@@ -563,17 +593,26 @@ class RadBxds:
 
             if header.choff == 0xff: # Replace choff if it is 0xff
                 header = header._replace(choff=0x00)
-            if header.choff == choff:
+
+            # Add to index for all channels
+            if True: #header.choff == choff:
                 lastbyte = fpos + headerlen + bytes_per_samp * header.nsamp
                 if lastbyte <= filesize:
-                    self.index_.append(item + (ii,))
+                    self.index_[header.choff].append(item + (ii,))
 
-        if len(self.index_):
-            self.shape = (len(self.index_), header.nsamp)
+    def save_index(self, indexfile:str):
+        """ Save the index data in self.index_ to a file to read later """
 
-        # Setup burst denoising if in a channel that wants it
-        if burstnoise is not None:
-            self.burstnoise = BurstDenoiser(**burstnoise)
+        with open(indexfile, 'wb') as fout:
+            pickle.dump(dict(self.index_), fout)
+
+    def load_index(self, indexfile:str):
+        """ read index data saved with save_index from indexfile into self.index  """
+
+        with open(indexfile, 'rb') as fout:
+            self.index_ = pickle.load(fout)
+        # invalidate cts() so it has to be reloaded
+        self.cts_ = None
 
     def __getattr__(self, k):
         """ Implement ndarray attributes """
@@ -608,13 +647,14 @@ class RadBxds:
         # Return a portion of the array
         traces = bxdsmm[5:10, 200:400]
         """
+        choff = self.channel0_ - (self.channel0_ & 1)
 
         if isinstance(idx, slice): # 1D slice case
-            indices = idx.indices(len(self.index_))
+            indices = idx.indices(len(self.index_[choff]))
             ntraces = len(range(*indices))
-            data = np.empty((ntraces, self.index_[0][2].nsamp), dtype=">i2")
+            data = np.empty((ntraces, self.index_[choff][0][2].nsamp), dtype=">i2")
 
-            for ii, idxinfo in enumerate(self.index_[idx]):
+            for ii, idxinfo in enumerate(self.index_[choff][idx]):
                 fpos, headerlen, header, _ = idxinfo
                 i0 = fpos + headerlen + self.trace_byteoffset_ * header.nsamp
                 self.fd_.seek(i0, 0)
@@ -628,7 +668,7 @@ class RadBxds:
                 return data[idx[1]]
 
         else: # assume it is an individual index.  Return a singleton dimension.
-            fpos, headerlen, header, _ = self.index_[idx]
+            fpos, headerlen, header, _ = self.index_[choff][idx]
             i0 = fpos + headerlen + self.trace_byteoffset_ * header.nsamp
             self.fd_.seek(i0, 0)
             data = np.frombuffer(self.fd_.read(header.nsamp<<1), dtype=">i2")
@@ -651,9 +691,9 @@ class RadBxds:
         two_cts = self.ct(3:5)
         """
         if self.cts_ is None: # Lazily load CTs
-
+            choff = self.channel0_ - (self.channel0_ & 1)
             all_cts = tuple(gen_ct(self.fd_.name))
-            self.cts_ = [all_cts[idx[3]] for idx in self.index_]
+            self.cts_ = [all_cts[idx[3]] for idx in self.index_[choff]]
         return self.cts_[idx]
 
 
@@ -663,20 +703,24 @@ class RadBxdsEx:
     (currently only supports combining two channels with summation)
 
     """
-    def __init__(self, filename:str=None, channels=None, stream=None, dtype=None, validonly:bool=True, bxds_class=RadBxds):
+    def __init__(self, filename:str=None, channels=None, stream=None,
+                 dtype=None, validonly:bool=True, bxds_class=RadBxds,
+                 indexfile:str=None):
         self.rbxds0_ = None
         self.rbxds1_ = None
         self.dtype = None
         self.bxds_class_ = bxds_class
 
         if filename is not None:
-            self.open(filename, channels, stream, dtype, validonly)
+            self.open(filename, channels, stream, dtype, validonly, indexfile)
 
-    def open(self, filename:str, channels, stream=None, dtype=None, validonly:bool=True):
+    def open(self, filename:str, channels, stream=None, dtype=None, validonly:bool=True,
+             indexfile:str=None):
         """
         filename: bxds file to load
         channels: list of channels to load (a PIK1ChannelSpec object)
         stream: hint at stream type
+        indexfile: if provided, load the index from this file
         """
 
         # PIK1ChannelSpec(chanout=1, chan0in=1, scalef0=1, chan1in=3, scalef1=1)
@@ -685,13 +729,13 @@ class RadBxdsEx:
 
         if channels.scalef0 == 1 and channels.scalef1 == 1:
             # sum channels
-            self.rbxds0_ = self.bxds_class_(filename, channels.chan0in, stream, burstnoise=channels.burstnoise_chan0, validonly=validonly)
-            self.rbxds1_ = self.bxds_class_(filename, channels.chan1in, stream, burstnoise=channels.burstnoise_chan1, validonly=validonly)
+            self.rbxds0_ = self.bxds_class_(filename, channels.chan0in, stream, burstnoise=channels.burstnoise_chan0, validonly=validonly, indexfile=indexfile)
+            self.rbxds1_ = self.bxds_class_(filename, channels.chan1in, stream, burstnoise=channels.burstnoise_chan1, validonly=validonly, indexfile=indexfile)
             assert self.rbxds0_.shape == self.rbxds1_.shape, "Radar data for %s doesn't have same shape." % (filename)
         else:
             # If we're only doing one channel, it better be chan0
             assert channels.scalef0 == 1
-            self.rbxds0_ = self.bxds_class_(filename, channels.chan0in, stream, burstnoise=channels.burstnoise_chan0, validonly=validonly)
+            self.rbxds0_ = self.bxds_class_(filename, channels.chan0in, stream, burstnoise=channels.burstnoise_chan0, validonly=validonly, indexfile=indexfile)
             self.rbxds1_ = None
 
         if dtype is None:
@@ -699,6 +743,22 @@ class RadBxdsEx:
             self.dtype = '>i2' if self.rbxds1_ is None else '>i4'
         else: # Use the user-specified dtype
             self.dtype = dtype
+
+    def save_index(self, indexfile:str):
+        """ Save index for each file using underlying index file.
+        Since open() can only be called with one input filename,
+        indexfile is also only one filename
+        """
+        self.rbxds0_.save_index(indexfile)
+
+        if self.rbxds1_ is not None:
+            self.rbxds1_.save_index(indexfile)
+
+    def load_index(self, indexfile:str):
+        self.rbxds0_.load_index(indexfile)
+
+        if self.rbxds1_ is not None:
+            self.rbxds1_.load_index(indexfile)
 
     def __del__(self):
         self.close()
@@ -779,10 +839,13 @@ class RADjh1Bxds:
     You might be better off just using np.memmap.
     """
 
-    def __init__(self, filename=None, channel=None, stream=None):
-        """ Initialize the reader to access one channel's records """
+    def __init__(self, filename=None, channel=None, stream=None, indexfile:str=None):
+        """ Initialize the reader to access one channel's records
+        indexfile is not used but included for interface compatibility
+        with other *Bxds classes
+        """
         self.fd_ = None
-
+        self.index_ = [] # for compatibility with RadBxds
         self.close()
         if filename is not None:
             self.open(filename, channel, stream)
@@ -822,7 +885,7 @@ class RADjh1Bxds:
         #self.fd_ = open(filename, 'rb')
         self.mmbxds_ = np.memmap(filename, dtype='<i2', mode='r', shape=(ntraces, 3200))
 
-    def __getattr__(self, k):
+    def __getattr__(self, k:str):
         """ Implement ndarray attributes """
         if k == 'size':
             return self.mmbxds_.shape[0] * self.mmbxds_.shape[1]
@@ -851,6 +914,20 @@ class RADjh1Bxds:
     def __getitem__(self, idx):
         """ View to the underlying memory map  """
         return self.mmbxds_[idx]
+
+    def save_index(self, indexfile:str):
+        """ placeholder so tests pass.  There is
+        no index to save or load. touch the file? """
+        pass
+        #with open(indexfile, 'wt') as fout:
+        #    pass
+
+    def load_index(self, indexfile:str):
+        """ placeholder so tests pass.  There is nothing to load """
+        pass
+        #with open(indexfile, 'rt') as fin:
+        #    pass
+        # Don't forget to invalidate self.cts_ if anything gets added here
 
     def ct(self, idx):
         """ Return a one or more ct values.  Supports slicing.
