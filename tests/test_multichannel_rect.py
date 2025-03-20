@@ -16,7 +16,7 @@ sys.path.insert(1, str(unfoc_path.absolute()))
 
 import unfoc
 
-WAIS = Path(os.getenv('WAIS'))
+WAIS = Path(os.getenv('WAIS', '/disk/kea/WAIS'))
 
 class TestMultichannelRect(unittest.TestCase):
 
