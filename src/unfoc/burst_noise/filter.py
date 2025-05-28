@@ -257,7 +257,7 @@ def match_burst_trace(trace_bb:np.array, burst_kernel:np.array, median_size:Tupl
     #trace_nn = medfilt(abs(trace_ee[0,:]), kernel_size=median_size[1])
     # tt = lp(ee) - nn
     tt = lp(trace_ee/trace_nn)[0,:] #abs(lp(trace_nn) - lp(trace_ee))
-    assert tt.shape == trace_bb.shape, "Input shape doesn't match output: input.shape=%r tt.shape=%r" % (trace.shape, tt.shape)
+    assert tt.shape == trace_bb.shape, "Input shape doesn't match output: input.shape=%r tt.shape=%r" % (trace_bb.shape, tt.shape)
     return tt
 
 
