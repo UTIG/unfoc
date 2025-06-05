@@ -21,6 +21,13 @@ extensions = [
     'numpydoc',
 ]
 
+autodoc_default_options = {
+    'members': True,
+    'undoc-members': True,
+    'special-members': '__init__',
+    'show-inheritance': True,
+}
+
 numpydoc_show_class_members = False
 autosummary_generate = True
 
