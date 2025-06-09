@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 
 """
-Math related to dechirping and frequency domain filtering.
+Math related to dechirping, local oscillator noise suppression and frequency domain filtering.
+
+This module provides tools for:
+- Removing coherent LO components from FFT spectra
+- Dechirping traces using a reference chirp
+- Generating reference chirps and frequency-domain filters
 """
 
 import logging
@@ -17,9 +22,19 @@ except ImportError: #pragma: no cover
 
 
 def cinterp(sweep_fft, index):
-    """ Modifies sweep_fft in place to filter out coherent local oscillator
+    """ 
+    Suppress local oscillator (LO) spike in an FFT spectrum by interpolation.
+
+    Modifies sweep_fft in place to filter out coherent local oscillator
     component by interpolating in the complex fourier domain
     sweep_fft is fft of sweep, and index is a bin affected by the LO noise.
+
+    Parameters
+    ----------
+    sweep_fft : np.ndarray
+        Complex FFT array of the input radar sweep.
+    index : int
+        Index of the LO-contaminated bin to be replaced.
     """
     # type: (np.ndarray, int) -> None
     r = (np.abs(sweep_fft[index-1]) + np.abs(sweep_fft[index+1])) / 2
@@ -40,6 +55,33 @@ def denoise_and_dechirp(trace, # type: np.ndarray
                         do_cinterp, # type: bool
                         detrend_type='linear'
                        ):
+    """
+    Denoise and dechirp a radar trace in the frequency domain.
+
+    Applies blanking, time shift, detrending, FFT, optional LO suppression,
+    and multiplies by a reference chirp in frequency domain. The result
+    is inverse-transformed and realigned to yield the dechirped trace.
+
+    Parameters
+    ----------
+    trace : np.ndarray
+        Raw input radar trace to be processed.
+    ref_chirp : np.ndarray
+        Frequency-domain reference chirp used for dechirping.
+    blanking : int
+        Number of samples to zero out at the start (positive) or end (negative).
+    output_samples : int
+        Length of FFT and output trace.
+    do_cinterp : bool
+        Whether to apply LO spike suppression via `cinterp`.
+    detrend_type : str, optional
+        Detrending method passed to `scipy.signal.detrend`. Default is 'linear'.
+
+    Returns
+    -------
+    np.ndarray
+        The dechirped radar trace (complex-valued).
+    """
     # type: (...) -> np.ndarray
 
     # Input trace is a 1 x output_samples array.
@@ -80,6 +122,22 @@ def denoise_and_dechirp(trace, # type: np.ndarray
 
 
 def get_ref_chirp(bandpass, trunc_sweep_length):
+    """
+    Generate a reference chirp for frequency-domain dechirping.
+
+    Parameters
+    ----------
+    bandpass : bool
+        If True, return chirp as-is. If False, reverse chirp for matched filtering.
+    trunc_sweep_length : int
+        Desired length of the output FFT chirp.
+
+    Returns
+    -------
+    np.ndarray
+        Frequency-domain reference chirp.
+    """
+
     # type: (bool, bool) -> np.ndarray
     I = np.array([-63, -92, -109, -75, -87, -50, -116, -154, -22, 68, 141,
                   -610, 1461, 3807, -6147, -5375, 10651, -4412, -9810, 15386,
@@ -101,6 +159,22 @@ def get_ref_chirp(bandpass, trunc_sweep_length):
 
 
 def get_hfilter(trunc_sweep_length):
+    """
+    Generate a half-band sine window filter centered in a fixed band.
+
+    The filter attenuates frequencies outside the 2.5–17.5 MHz range,
+    scaled to the FFT length.
+
+    Parameters
+    ----------
+    trunc_sweep_length : int
+        FFT length, used to compute the sample indices corresponding to frequency cutoffs.
+
+    Returns
+    -------
+    np.ndarray
+        Frequency-domain filter array.
+    """
     # type: (int) -> np.ndarray
     # Convert MHz to samples
     min_freq = int(round(2.5 * trunc_sweep_length / 50))
