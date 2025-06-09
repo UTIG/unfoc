@@ -1,5 +1,7 @@
-""" main body for burst noise filtering 
+""" 
+Main body for burst noise filtering 
 
+Includes matched filtering, pulse detection, and silence-based suppression methods.
 """
 
 from typing import Tuple, List
@@ -14,8 +16,30 @@ from scipy.signal import convolve, butter, filtfilt, medfilt2d, medfilt
 from ..trace import Trace
 
 class BurstDenoiser:
-    """ Class-encapsulated interface to burst denoising
-    TODO: combine with functional interface
+    """ 
+    Class-encapsulated interface to burst denoising
+
+    Applies matched filtering and median filtering to detect and suppress
+    burst noise artifacts in real-valued radar traces.
+
+    Parameters
+    ----------
+    median_size : tuple[int,int]
+        Size of the 2D median filter (slow time, fast time).
+        Only 1D filters in slow time are currently supported.
+    burst_widths : list[float]
+        Widths of expected burst pulses (in fast-time samples).
+    detect_thresholds : list[float]
+        Detection thresholds (in dB) for each pulse width.
+
+    Methods
+    -------
+    denoise(traces)
+        Apply burst noise detection and suppression to 1D or 2D trace arrays.
+
+    TODO
+    ----
+        - Combine with the functional interface (`denoise_burst`)
     """
     def __init__(self, median_size:Tuple[int,int], burst_widths: List[float], detect_thresholds:List[float]):
 
@@ -41,8 +65,23 @@ class BurstDenoiser:
         assert len(detect_thresholds) == len(self.kernels)
 
     def denoise(self, traces: np.ndarray)->np.ndarray:
-        """ traces: a 1D or 2D array of traces to be denoised 
-        return value: denoised traces"""
+        """ 
+        Denoise one or more radar traces by detecting and silencing burst noise.
+
+        Parameters
+        ----------
+        traces : np.ndarray
+            1D or 2D array of traces to be denoised
+        
+        Returns
+        -------
+        np.ndarray 
+            Array of denoised traces with the same shape as input
+        
+        TODO
+        ----
+            - Refactor to allow all median filters to be done at once
+        """
         numpulses = 0
 
         if self.expon_ is None:
@@ -102,31 +141,31 @@ class BurstDenoiser:
 
 def denoise_burst(tracegen, median_size:Tuple[int,int], 
                   burst_widths: List[float], detect_thresholds:List[float]):
-    """ Return a generator that reduces burst noise in a series of traces
-    Parameters:
-        tracegen - 
+    """ 
+    Return a generator that reduces burst noise in a series of traces
+
+    Parameters
+    ----------
+    tracegen : generator of Trace
         a generator that provides Trace objects of real-valued zero-mean amplitude
         data (such as from a bxds file).  These can be 16-bit integer data
-
-        median_size
-        A tuple indicating the size of the 2D median filter for detecting background level.
-        Dimensions are (slow time, fast time).  A reasonable value is (3, 51)
+    median_size : tuple[int,int]
+        Size of the 2D median filter (slow time, fast time) for detecting background level.
+        A reasonable value is (3, 51)
 
         Decreasing median_size fast time less than 41 will result in a significant increase of noise in the image.
         Increasing the median_size fast time above 51 will not have noticeable effects.
-
         Currently, only a median filter slow time dimension of 1 is supported
         (no forward or aft time dependence)
-
-        burst_widths: List[float]
+       
+    burst_widths: List[float]
         A sequence of widths of bursts to use for the matched filter, in fast time samples.
         A reasonable value for this is [20], or perhaps [5, 15, 30]
 
         Increasing burst_widths above 15 will not yield significant changes to the figure.
         Decreasing burst_width will only begin to show changes in the figure below 15 (notably around 7).
-
-        detect_threshold:
-        A list of detection threshold values for burst detection in dB.
+    detect_threshold : list[float]
+        Detection threshold values for burst detection in dB.
         The length of this sequence must be the same as for burst_widths.
         25 is a reasonable value
 
@@ -134,8 +173,9 @@ def denoise_burst(tracegen, median_size:Tuple[int,int],
         Increasing the detect_threshold value to 30 or above will cause the figure to have more noise.
 
     Returns
+    -------
+    Trace
         Yields a sequence of traces with the same length as the input sequence,
-        where the outputs are filtered to remove the burst noise
     """
 
     assert median_size[0] == 1, "Median must be 1D for now"
@@ -163,18 +203,29 @@ def denoise_burst(tracegen, median_size:Tuple[int,int],
 
 
 def detected_pulses(detection:np.array, gap:int=14):
-    """ Given a detection array, return a sequence of
-    contiguous intervals
+    """ 
+    Yield a sequence of contiguous intervals from a detection array.
 
-    detection is an array of integers where any nonzero
-    value is considered a detection.
+    Regions of interest (ROIs) are sequences of nonzero detections,
+    separated by at least `gap` zero entries. Each ROI is expanded
+    by `gap // 2`, clipped to array bounds.
 
-    gap is the minimum gap in detections to trigger
-    a noncontiguous region.
+    Parameters
+    ----------
+    detection : np.array
+        An array of detections, where each element
+        is either 0 (no detection) or nonzero (detection).
+    gap : int
+        The minimum gap in detections to trigger a noncontiguous region.
 
-    ROIs will be expanded by gap//2, up to the
-    min/max dimensions of the detection array.
-    TODO: use median filter and make this shorter/quicker
+    Yields
+    -------
+    tuple[int,int]
+        A tuple of start and end indices for each detected pulse region.
+
+    TODO
+    ----
+        -Use median filter and make this shorter/quicker
     """
     start_idx = None # first detection in this group
     prev_idx = None # previous detection index
@@ -192,9 +243,16 @@ def detected_pulses(detection:np.array, gap:int=14):
         yield expand_roi(start_idx, prev_idx+1, gap, detection)
 
 def expand_roi(idx0:int, idx1:int, gap:int, detection:np.array)->Tuple[int,int]:
-    """ idx0 is the start index,
-    idx1 is the index of the first non-detection
+    """ 
+    Expand a region of interest (ROI) by half the gap on both sides.
+
+    idx0 is the start index and idx1 is the index of the first non-detection
     (i.e., a half-open interval)
+
+    Returns
+    -------
+    tuple[int, int]
+        Expanded start and end indices.
     """
     roi_e_start = max(0, idx0-gap//2)
     roi_e_end = min(len(detection), idx1+gap//2)
@@ -202,10 +260,26 @@ def expand_roi(idx0:int, idx1:int, gap:int, detection:np.array)->Tuple[int,int]:
 
 
 def silence_burst(trace:np.array, roi:Tuple[int,int])->np.array:
-    """ Silence the burst by taking the ends and filling them toward
+    """ 
+    Silence the burst by taking the ends and filling them toward
     the middle
-    TODO: make a separate function that does a linear interpolation
-    rather than taking beginning and end
+
+    Parameters
+    ----------
+    trace : np.array
+        Original trace containing burst noise.
+    roi : tuple[int, int]
+        Start and end indices of the burst region.
+
+    Returns
+    -------
+    np.array
+        Burst-suppressed segment.
+
+    TODO
+    ----
+        -Make a separate function that does a linear interpolation 
+        rather than taking beginning and end
     """
     length = roi[1] - roi[0]
     arr = np.empty((length,), dtype=trace.dtype)
@@ -215,9 +289,26 @@ def silence_burst(trace:np.array, roi:Tuple[int,int])->np.array:
     return arr
 
 def make_pulse_kernel(width:float,amplitude:float=1., nsamples:int=None) -> np.array:
-    """ construct a sinc pulse kernel of length nsamples, with a
-    pulse width of 'width' samples, and a peak amplitude of 1.0 
+    """ 
+    Generate a sinc pulse kernel for matched filtering.
+
+    Construct a sinc pulse kernel of length nsamples, with a
+    pulse width of 'width' samples, and a peak amplitude of 1.0. 
     Recommend making the kernel an odd number of samples for symmetry
+
+    Parameters
+    ----------
+    width : float
+        Effective pulse width in samples.
+    amplitude : float, optional
+        Amplitude of the pulse. Default is 1.0.
+    nsamples : int, optional
+        Total kernel length. If None, computed automatically.
+
+    Returns
+    -------
+    np.array
+        The generated sinc pulse kernel.
     """
     assert width > 0, "Pulse width must be positive"
     if nsamples is None:
@@ -231,6 +322,9 @@ def make_pulse_kernel(width:float,amplitude:float=1., nsamples:int=None) -> np.a
     return kernel
 
 def load_pulse_kernel():
+    """
+    Load a precomputed burst noise kernel from a file.     
+    """
     filename = Path(__file__).parent / 'burst_noise_PPT_MKB2o_Y01e_trace932_samp2985.npz'
     kern = np.load(filename)['burst_noise_sample']
     return kern#return np.flip(kern)
@@ -240,10 +334,25 @@ def load_pulse_kernel():
 
 
 def match_burst_trace(trace_bb:np.array, burst_kernel:np.array, median_size:Tuple[int,int])->np.array:
-    """ Apply a matched filter kernel to a trace
-    and return the convolution 
+    """ 
+    Apply a matched filter kernel to a trace and return the convolution 
+
     Assumes the trace has already been downconverted to baseband
     and that the kernel is also already adownconverted complex exponential
+
+    Parameters
+    ----------
+    trace_bb : np.array
+        Complex baseband trace.
+    burst_kernel : np.array
+        Matched filter kernel (also baseband).
+    median_size : tuple[int,int]
+        Median filter window size (slow time, fast time). 
+
+    Returns
+    -------
+    np.array
+        Log-power-normalized match strength array.
     """
 
     # ee = ifft(fft(dd) .* cc);
@@ -262,5 +371,5 @@ def match_burst_trace(trace_bb:np.array, burst_kernel:np.array, median_size:Tupl
 
 
 def lp(trace:np.array):
-    """ Log power of an amplitude trace """
+    """ Return log power of an amplitude trace in dB """
     return 20*np.log10(abs(trace))
