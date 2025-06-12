@@ -35,7 +35,7 @@ def setup_common_args(parser):
                         help="output phase, in addition to magnitude")
     parser.add_argument('--bandpass', action='store_true',
                         help='Process bandpass-sampled data (for use with MARFA data, not for use with legacy HiCARS/HiCARS2 data). Disable cinterp and flips the chirp.')
-    parser.add_argument('--denoise', required=False, default=None, choices=('burst'),
+    parser.add_argument('--denoise', required=False, default=None, choices=('burst',),
                             help='Enable burst denoising filter for high gain channels')
 
     parser.add_argument('--buffering', default=10240, type=int, help="File buffering parameter")
