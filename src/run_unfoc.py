@@ -67,8 +67,8 @@ def main():
                     format='unfoc: [%(levelname)-5s] %(message)s')
 
     unfoc.unfoc(args.outdir, args.input, args.channels, args.output_samples, args.stackdepth, args.incodepth,
-          args.blanking, args.bandpass, scale=args.scale, output_phases=False, nmax=args.nmax, processes=args.jobs,
-          denoise=args.denoise, buffering=args.buffering)
+          args.blanking, args.bandpass, scale=args.scale, output_phases=args.output_phases, nmax=args.nmax,
+          processes=args.jobs, denoise=args.denoise, buffering=args.buffering)
 
 
 if __name__ == "__main__":
