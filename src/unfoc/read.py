@@ -430,7 +430,7 @@ def read_RADnhx_gen(bxds_filename:str, channel:int, stream:str=None, filepos:int
 
     with open(bxds_filename, 'rb', buffering=buffering) as fd: # for reading traces
         ctgen = gen_ct(bxds_filename)
-        radgen = index_RADnhx_bxds(bxds_filename, stream, filepos, buffering=buffering)
+        radgen = index_RADnhx_bxds(bxds_filename, stream, filepos=filepos, buffering=buffering)
         for radinfo, ctinfo in zip(radgen, ctgen):
             fpos, headerlen, rchoff, nsamp = radinfo
             if rchoff == 0xff:
