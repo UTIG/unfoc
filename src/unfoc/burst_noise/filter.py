@@ -112,17 +112,26 @@ def denoise_burst(tracegen, median_size:Tuple[int,int],
         A tuple indicating the size of the 2D median filter for detecting background level.
         Dimensions are (slow time, fast time).  A reasonable value is (3, 51)
 
+        Decreasing median_size fast time less than 41 will result in a significant increase of noise in the image.
+        Increasing the median_size fast time above 51 will not have noticeable effects.
+
         Currently, only a median filter slow time dimension of 1 is supported
         (no forward or aft time dependence)
-       
+
         burst_widths: List[float]
         A sequence of widths of bursts to use for the matched filter, in fast time samples.
         A reasonable value for this is [20], or perhaps [5, 15, 30]
+
+        Increasing burst_widths above 15 will not yield significant changes to the figure.
+        Decreasing burst_width will only begin to show changes in the figure below 15 (notably around 7).
 
         detect_threshold:
         A list of detection threshold values for burst detection in dB.
         The length of this sequence must be the same as for burst_widths.
         25 is a reasonable value
+
+        Decreasing the detect_threshold value from 25 will not yield a visible effect on the figure.
+        Increasing the detect_threshold value to 30 or above will cause the figure to have more noise.
 
     Returns
         Yields a sequence of traces with the same length as the input sequence,
