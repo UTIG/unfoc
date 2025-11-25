@@ -8,6 +8,12 @@ covdata
 dist/
 *.egg-info/
 
+#Ignore documentation auto-generated files
+docs/source/_autosummary/
+# Keep manual autosummary pages
+!docs/source/_autosummary/unfoc.burst_noise.rst
+!docs/source/_autosummary/unfoc.burst_noise.filter.rst
+
 #Ignore documentation build
 docs/build/
 
