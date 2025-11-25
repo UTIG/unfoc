@@ -1,17 +1,17 @@
-unfoc package
+unfoc Module
 =========
+.. py:currentmodule:: unfoc
 
 .. automodule:: unfoc
     :members:
     :undoc-members:
     :show-inheritance:
-
-Submodules
-----------
+    :inherited-members:
+    :noindex:
 
 .. autosummary::
    :toctree: _autosummary
-   :recursive:
+   :caption: Submodules
 
    unfoc.read
    unfoc.write
@@ -19,5 +19,4 @@ Submodules
    unfoc.filter
    unfoc.trace
    unfoc.parse_channels
-   unfoc.burst_noise
-   unfoc.chirp
+   unfoc.burst_noise.filter

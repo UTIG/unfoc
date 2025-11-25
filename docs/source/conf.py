@@ -7,8 +7,8 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'unfoc'
-copyright = '2025, Greg'
-author = 'Greg'
+copyright = '2025, Gregory Ng'
+author = 'Gregory Ng'
 release = '2.1.1'
 
 # -- General configuration ---------------------------------------------------
@@ -21,15 +21,23 @@ extensions = [
     'numpydoc',
 ]
 
+add_module_names = False     
+autosummary_generate_overwrite = False
+autosummary_generate = True
+autosummary_context = {"show_docstring": True}
+
 autodoc_default_options = {
     'members': True,
-    'undoc-members': True,
-    'special-members': '__init__',
-    'show-inheritance': True,
+    "undoc-members": False,
+    "private-members": False,
+    "special-members": "__init__",
+    "inherited-members": True,
+    "show-inheritance": True,
 }
 
+napoleon_numpy_docstring = True
+napoleon_google_docstring = False
 numpydoc_show_class_members = False
-autosummary_generate = True
 
 import os
 import sys
@@ -46,3 +54,4 @@ exclude_patterns = []
 
 html_theme = "sphinx_rtd_theme"
 html_static_path = ['_static']
+
