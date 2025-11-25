@@ -4,10 +4,3 @@
 .. automodule:: unfoc.burst_noise
 
    
-.. rubric:: Modules
-
-.. autosummary::
-   :toctree:
-   :recursive:
-
-   filter

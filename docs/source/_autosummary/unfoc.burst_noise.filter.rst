@@ -1,4 +1,4 @@
-unfoc.burst\_noise.filter
+﻿unfoc.burst\_noise.filter
 =========================
 
 .. automodule:: unfoc.burst_noise.filter
