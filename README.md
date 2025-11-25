@@ -102,3 +102,8 @@ big-endian signed integer samples.  Output files include:
 MagLoResIncoN and PhsLoResIncoN typically have 3200 samples per trace.
 
 Semantic meaning of channel numbers are discussed in `docs/Multipol Data Format.pdf`.
+
+# Acknowledgments
+
+Supported by **NSF award 2127606** (“Collaborative Research: EarthCube Capabilities: Open Polar Radar (OPoRa) Software and Service”)
+and the **G. Unger Vetlesen Antarctic Aerogeophysical Data Analysis Project** ([G. Unger Vetlesen Foundation](https://www.vetlesenfoundation.org/)).
