@@ -41,6 +41,26 @@ Issues = "https://github.com/UTIG/unfoc/issues"
 run_unfoc = "run_unfoc:main"
 run_unfoc_1m = "run_unfoc_1m:main"
 
+
+[project.optional-dependencies]
+docs = [
+    "sphinx",
+    # Add any Sphinx extensions or themes you use here (e.g., "pydata-sphinx-theme")
+    "sphinx-autobuild",
+    "sphinx_rtd_theme",
+    "sphinx_pyproject",
+    "numpydoc",
+]
+
+[tool.sphinx-pyproject]
+# Sphinx configuration values go here
+project = 'unfoc'
+author = "Gregory Ng"
+copyright = "2025, University of Texas Institute for Geophysics"
+
+#html_theme = "furo" 
+# ... other standard Sphinx options
+
 [tool.setuptools]
 include-package-data = true
 

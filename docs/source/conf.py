@@ -3,8 +3,14 @@
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
+import os
+import sys
+from sphinx_pyproject import SphinxConfig
+
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
+sys.path.insert(0, os.path.abspath("../../src"))
+from unfoc.read import __version__ as dynamic_release
 
 # --- Work around sphinx autodoc type-comment signature crash ---
 try:
@@ -23,10 +29,12 @@ except Exception:
     pass
 # --------------------------------------------------------------
 
-project = 'unfoc'
-copyright = '2025, Gregory Ng'
-author = 'Gregory Ng'
-release = '2.1.1'
+config = SphinxConfig("../../pyproject.toml", globalns=globals(),
+    config_overrides={
+        "release": dynamic_release,
+        "version": ".".join(dynamic_release.split(".")[:2])  # Optional: e.g., '1.2' from '1.2.3'
+    }
+)
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -56,10 +64,6 @@ napoleon_numpy_docstring = True
 napoleon_google_docstring = False
 numpydoc_show_class_members = False
 autodoc_typehints = "none"
-
-import os
-import sys
-sys.path.insert(0, os.path.abspath('../../src'))
 
 
 templates_path = ['_templates']
