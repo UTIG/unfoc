@@ -71,61 +71,142 @@ To run each output channel on a separate core:
           stackdepth=10, incodepth=5,
           channels=channels, processes=2)
 
-3. Step-by-step Module Usage 
----------------------------------------
+3. Illustrative Example of Unfocused Processing
+-----------------------------------------------
 
-This section walks through the full unfocused radargram processing pipeline.
+This section illustrates how the ``unfoc`` function works
+internally in a way somewhat familiar to matlab users,
+operating on full arrays for each conceptual stage.
 
-**Using readers for data ingest**
+Users should not use this code for implementing their own
+custom processing of large datasets, because it is not
+memory-efficient.
 
-The ``unfoc`` module provides several ways to read raw radar data. The first data channel is indexed from 1.
+Instead, see the next section which sets up iterators
+and generators to read traces on demand and stream to
+output files.
+
+The major parts within unfocused processing are
+
+#. Reading input radar traces for a channel
+#. Coherent stacking
+#. Dechirping (range compression) and Fourier processing
+#. Incoherent stacking
+#. Writing unfocused radargram data
+
 
 .. code-block:: python
-
     from unfoc import RadBxds
+    from unfoc import stack_coherent, chunks
+    from unfoc import get_ref_chirp, get_hfilter, denoise_and_dechirp
+    from unfoc import stack_inco_chunk, PIK1ChannelSpec, PIK1Output
+
+
+    stackdepth = 10 # Coherent stacking depth
+    incodepth  = 5   # Incoherent stacking depth
+    channel    = 1
+    chanout    = 'LoResInco1'
+    nsamples   = 3200
+    bxds_input = '/path/to/bxds'
+
+    # Set up a reader class to read one channel from a bxds file
+    # rbxds1 is an object that looks a lot like a numpy array.
+    rbxds1 = RadBxds(bxds_input, channel=channel)
+
+    # for ii in range(0, len(rbxds1), stackdepth):
+    #     # Read through the traces and do nothing
+    #     block = rbxds1[ii:ii+stackdepth]   # 10 traces of shape (10, 3200)
+    #     cts = rbxds1.ct(ii:ii+stackdepth)  # CT metadata
+
+    # Coherent stacking
+    coherent_blocks = chunks(rbxds1, size=stackdepth)
+    stacked_traces  = [stack_coherent(block) for block in coherent_blocks]
+
+    # Dechirping and filtering
+    ref_chirp = get_ref_chirp(bandpass=False, nsamp=nsamples)
+    ref_chirp *= get_hfilter(nsamples)
+
+    dechirped = [
+        denoise_and_dechirp(trace, ref_chirp=ref_chirp,
+                            blanking=16, output_samples=nsamples,
+                            do_cinterp=True)
+        for trace in stacked_traces]
+
+    # Incoherent stacking
+
+    p1cs = PIK1ChannelSpec(chanout=chanout)
+    inco_chunks = chunks(dechirped, size=incodepth, incomplete=False)
+    inco_traces = [stack_inco_chunk(chunk, p1cs.chanout) for chunk in inco_chunks]
+
+    # Write output
+
+    output_file = PIK1Output('/tmp/outdir', p1cs.chanout)
+    for t in inco_traces:
+        output_file.write(t)
+
+
+4. Internal Unfocused Processing Steps Using Generators
+-------------------------------------------------------
+
+This section illustrates the full unfocused radargram processing pipeline,
+using generators at each stage, for the most memory-efficient processing.
+
+
+.. code-block:: python
+    from unfoc import RadBxds
+    from unfoc import stack_coherent, chunks
+    from unfoc import get_ref_chirp, get_hfilter, denoise_and_dechirp
+    from unfoc import stack_inco_chunk, PIK1ChannelSpec, PIK1Output
+
+
+    stackdepth = 10 # Coherent stacking depth
+    incodepth  = 5   # Incoherent stacking depth
+    channel    = 1
+    chanout    = 'LoResInco1'
+    nsamples   = 3200
 
     bxds_input = '/path/to/bxds'
     rbxds1 = RadBxds(bxds_input, channel=1)
 
-    for ii in range(0, len(rbxds1), 10):
-        block = rbxds1[ii:ii+10]      # 10 traces of shape (10, 3200)
-        cts = rbxds1.ct(ii:ii+10)     # CT metadata
+    ## Iterate through traces ten at a time
+    #for ii in range(0, len(rbxds1), 10):
+    #    block = rbxds1[ii:ii+10]      # 10 traces of shape (10, 3200)
+    #    cts = rbxds1.ct(ii:ii+10)     # CT metadata
 
-**Coherent stacking**
 
-.. code-block:: python
+    # Initialize generator to produce blocks of 10 traces
+    coherent_blocks = chunks(rbxds1, size=stackdepth)
+    stacked_traces  = map(stack_coherent, coherent_blocks)
+    # turn this into a full array, for debugging
+    # stacked_traces = np.array(stacked_traces)
 
-    from unfoc import stack_coherent, chunks
 
-    coherent_blocks = chunks(rbxds1, size=10)
-    stacked = [stack_coherent(block) for block in coherent_blocks]
+    # Initialize Dechirping and filtering
 
-**Dechirping and filtering**
+    ref_chirp = get_ref_chirp(bandpass=False, nsamp=nsamples)
+    ref_chirp *= get_hfilter(nsamples)
 
-.. code-block:: python
+    f_dechirp = lambda trace: denoise_and_dechirp(trace, ref_chirp=ref_chirp,
+                              blanking=16, output_samples=nsamples,
+                              do_cinterp=True)
+    dechirped = map(f_dechirp, stacked_traces)
+    # For debugging, convert into a full array
+    # dechirped = np.array(dechirped)
 
-    from unfoc import get_ref_chirp, get_hfilter, denoise_and_dechirp
+    # Initialize incoherent stacking
 
-    ref_chirp = get_ref_chirp(bandpass=False, nsamp=3200)
-    ref_chirp *= get_hfilter(3200)
+    p1cs = PIK1ChannelSpec(chanout=chanout)
+    inco_chunks = chunks(dechirped, size=inco_depth, incomplete=False)
+    inco_traces = map(lambda chunk: stack_inco_chunk(chunk, p1cs.chanout), inco_chunks)
+    # For debugging, convert into a full array
+    # inco_traces = np.array(inco_traces)
 
-    dechirped = [
-        denoise_and_dechirp(trace, ref_chirp=ref_chirp,
-                            blanking=16, output_samples=3200,
-                            do_cinterp=True)
-        for trace in stacked
-    ]
-
-**Incoherent stacking and writing output**
-
-.. code-block:: python
-
-    from unfoc import stack_inco_chunk, PIK1ChannelSpec, PIK1Output
-
-    p1cs = PIK1ChannelSpec(chanout='LoResInco1')
-    inco_chunks = chunks(dechirped, size=5, incomplete=False)
-    traces_out = [stack_inco_chunk(chunk, p1cs.chanout) for chunk in inco_chunks]
-
+    # Execute processing and write output
     output_file = PIK1Output('/tmp/outdir', p1cs.chanout)
-    for t in traces_out:
+    for t in inco_traces:
         output_file.write(t)
+
+In the above code, most of the code sets up generators for the processing
+pipeline, and data processing does not actually occur until
+the final loop (``for t in inco_traces``).
+
