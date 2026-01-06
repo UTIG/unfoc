@@ -71,20 +71,23 @@ To run each output channel on a separate core:
           stackdepth=10, incodepth=5,
           channels=channels, processes=2)
 
-3. Illustrative Example of Unfocused Processing
+3. Implementation of Unfocused Processing
 -----------------------------------------------
 
 This section illustrates how the ``unfoc`` function works
-internally in a way somewhat familiar to matlab users,
-operating on full arrays for each conceptual stage.
-
-Users should not use this code for implementing their own
-custom processing of large datasets, because it is not
+to process one channel of data. It uses a pipeline of
+generators, so that processing of large datasets is
 memory-efficient.
 
-Instead, see the next section which sets up iterators
-and generators to read traces on demand and stream to
-output files.
+The code is slightly simplified to illustrate main concepts.
+It may be slightly out-of-date from the current, complete
+implementation.  Consult the actual source code for
+more up-to-date best practices.
+
+It contains some comments that show how to export an entire
+intermediate numpy array for inspection/debugging. Users
+normally should not enable this commented-out code, because
+it may cause excessive memory usage.
 
 The major parts within unfocused processing are
 
@@ -103,9 +106,9 @@ The major parts within unfocused processing are
 
 
     stackdepth = 10 # Coherent stacking depth
-    incodepth  = 5   # Incoherent stacking depth
-    channel    = 1
-    chanout    = 'LoResInco1'
+    incodepth  = 5  # Incoherent stacking depth
+    channel    = 1  # Raw channel number
+    chanout    = 'LoResInco1' # PIK1 channel label
     nsamples   = 3200
     bxds_input = '/path/to/bxds'
 
@@ -117,62 +120,6 @@ The major parts within unfocused processing are
     #     # Read through the traces and do nothing
     #     block = rbxds1[ii:ii+stackdepth]   # 10 traces of shape (10, 3200)
     #     cts = rbxds1.ct(ii:ii+stackdepth)  # CT metadata
-
-    # Coherent stacking
-    coherent_blocks = chunks(rbxds1, size=stackdepth)
-    stacked_traces  = [stack_coherent(block) for block in coherent_blocks]
-
-    # Dechirping and filtering
-    ref_chirp = get_ref_chirp(bandpass=False, nsamp=nsamples)
-    ref_chirp *= get_hfilter(nsamples)
-
-    dechirped = [
-        denoise_and_dechirp(trace, ref_chirp=ref_chirp,
-                            blanking=16, output_samples=nsamples,
-                            do_cinterp=True)
-        for trace in stacked_traces]
-
-    # Incoherent stacking
-
-    p1cs = PIK1ChannelSpec(chanout=chanout)
-    inco_chunks = chunks(dechirped, size=incodepth, incomplete=False)
-    inco_traces = [stack_inco_chunk(chunk, p1cs.chanout) for chunk in inco_chunks]
-
-    # Write output
-
-    output_file = PIK1Output('/tmp/outdir', p1cs.chanout)
-    for t in inco_traces:
-        output_file.write(t)
-
-
-4. Internal Unfocused Processing Steps Using Generators
--------------------------------------------------------
-
-This section illustrates the full unfocused radargram processing pipeline,
-using generators at each stage, for the most memory-efficient processing.
-
-
-.. code-block:: python
-    from unfoc import RadBxds
-    from unfoc import stack_coherent, chunks
-    from unfoc import get_ref_chirp, get_hfilter, denoise_and_dechirp
-    from unfoc import stack_inco_chunk, PIK1ChannelSpec, PIK1Output
-
-
-    stackdepth = 10 # Coherent stacking depth
-    incodepth  = 5   # Incoherent stacking depth
-    channel    = 1
-    chanout    = 'LoResInco1'
-    nsamples   = 3200
-
-    bxds_input = '/path/to/bxds'
-    rbxds1 = RadBxds(bxds_input, channel=1)
-
-    ## Iterate through traces ten at a time
-    #for ii in range(0, len(rbxds1), 10):
-    #    block = rbxds1[ii:ii+10]      # 10 traces of shape (10, 3200)
-    #    cts = rbxds1.ct(ii:ii+10)     # CT metadata
-
 
     # Initialize generator to produce blocks of 10 traces
     coherent_blocks = chunks(rbxds1, size=stackdepth)
