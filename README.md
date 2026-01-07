@@ -10,6 +10,15 @@ It includes a module for reading radar data from disk and loading
 into numpy as an array with timing metadata.
 
 
+## More Detailed Documentation (Sphinx sources)
+
+- [Usage Guide](docs/source/usage_guide.rst)
+- [Installation](docs/source/installation.rst)
+- [Package design](docs/source/package_design.rst)
+- [Modules](docs/source/modules.rst)
+
+
+
 # Command Line Usage
 
 You can invoke the module as a script to process input data on disk
