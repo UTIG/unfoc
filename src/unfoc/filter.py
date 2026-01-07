@@ -120,23 +120,39 @@ def unfoc_chan_(args):
 def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
           blanking, bandpass, scale=20000, output_phases=False, nmax=0, delay=0.,
           burst_noise=None, buffering:int=-1):
+    """
+    Generate one output channel of unfoc data.
 
-    """ 
-    Generate one output channel of unfoc data
-
-    outdir: output directory where data will be placed
-    infile: input bxds file
-    p1cs: channel specification for this output file (PIK1ChannelSpec object)
-    output_samples: number of output samples to place into the output file
-    stackdepth: coherent stacking depth
-    incodepth: incoherent stacking depth
-    blanking: samples to blank
-    scale: output magnitude scaling factor
-    output_phases: if true, also output phase data
-    nmax: max number of output samples to prcess, then quit (usually for testing).
-    burst_noise: 
-        parameters for burst noise correction
-
+    Parameters
+    ----------
+    outdir : str
+        Output directory where data will be placed.
+    infile : str
+        Input bxds file.
+    p1cs : PIK1ChannelSpec
+        Channel specification for this output file.
+    output_samples : int
+        Number of output samples to place into the output file.
+    stackdepth : int
+        Coherent stacking depth.
+    incodepth : int
+        Incoherent stacking depth.
+    blanking : int or slice or array-like
+        Samples to blank.
+    bandpass : bool
+        If True, apply bandpass; used to control interpolation choice.
+    scale : int, optional
+        Output magnitude scaling factor.
+    output_phases : bool, optional
+        If True, also output phase data.
+    nmax : int, optional
+        Max number of output records to process, then quit (usually for testing).
+    delay : float, optional
+        If > 0, sleep for this many seconds before starting (used for staggering jobs).
+    burst_noise : object, optional
+        Parameters for burst noise correction.
+    buffering : int, optional
+        Buffering setting passed to the reader setup.
 
     """
     if delay > 0:
@@ -390,9 +406,9 @@ def setup_bxds_reader(bxdsfile, channel_specs, buffering:int):
     generator
         Generator yielding Trace objects.
             
-    TODO
-    ----
-    Update PIK1ChannelSpec to have less redundant parameters since we
+    Notes
+    -----
+    Todo: Update PIK1ChannelSpec to have less redundant parameters since we
     make these assertions here.
 
     """

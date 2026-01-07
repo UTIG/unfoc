@@ -9,9 +9,9 @@ You must be added to the **UTIG GitHub organization** to access the repository. 
 
 Once added, you can install the package in one of the following ways:
 
------------------------------
+--------------------------------
 1. Manual Installation (Release)
------------------------------
+--------------------------------
 
 To manually install from the official release (e.g., v2.1.0):
 
@@ -34,9 +34,9 @@ To manually install from the official release (e.g., v2.1.0):
     cd utig_unfoc-2.1.0
     pip install .
 
------------------------------
+--------------------------------
 2. Clone and Install from GitHub
------------------------------
+--------------------------------
 
 If you have access to the private GitHub repository (you must be added to the
 ``UTIG`` organization first), you can install the **latest** version in a few ways.
@@ -53,9 +53,9 @@ You may also use HTTPS:
 
     git clone https://github.com/UTIG/unfoc.git
 
------------------------------
+----------------------------------
 3. PyPI Installation (Coming Soon)
------------------------------
+----------------------------------
 
 Once published to PyPI, you will be able to install with:
 
@@ -65,9 +65,9 @@ Once published to PyPI, you will be able to install with:
 
 Stay tuned for announcements on PyPI availability.
 
------------------------------
+------------
 Requirements
------------------------------
+------------
 
 **Python version:** 3.7–3.12  
 **Dependencies:**

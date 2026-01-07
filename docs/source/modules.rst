@@ -1,5 +1,5 @@
 unfoc Module
-=========
+============
 .. py:currentmodule:: unfoc
 
 .. automodule:: unfoc
@@ -13,10 +13,10 @@ unfoc Module
    :toctree: _autosummary
    :caption: Submodules
 
-   unfoc.read
-   unfoc.write
-   unfoc.dechirp
-   unfoc.filter
-   unfoc.trace
-   unfoc.parse_channels
-   unfoc.burst_noise.filter
+   read
+   write
+   dechirp
+   filter
+   trace
+   parse_channels
+   burst_noise.filter

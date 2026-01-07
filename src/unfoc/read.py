@@ -397,9 +397,9 @@ def index_RADnhx_bxds(input_filename, stream=None, full_header=False, filepos:in
         Else:
             (fpos, headerlen, choff, nsamp)
     
-    TODO
-    ------
-    rework this function to always return the full header and make
+    Notes
+    -----
+    Todo: Rework this function to always return the full header and make
     all callers grab the member methods
     """
 
@@ -764,7 +764,7 @@ class RadBxds:
                     self.index_[header.choff].append(item + (ii,))
 
     def save_index(self, indexfile:str):
-        """ Save the index data in self.index_ to a file to read later """
+        """ Save the index data in ``self.index_`` to a file to read later """
 
         with open(indexfile, 'wb') as fout:
             pickle.dump(dict(self.index_), fout)
@@ -1062,15 +1062,13 @@ class RADjh1Bxds:
     - Use `__getitem__`, slicing, or `ct()` to access data and CT metadata.
     - Index saving/loading are no-ops.
 
-    TODO
-    ----
-    Implemen iteration.
+    Todo: Implemen iteration.   
     """
 
     def __init__(self, filename=None, channel=None, stream=None, indexfile:str=None):
         """ Initialize the reader to access one channel's records
         indexfile is not used but included for interface compatibility
-        with other *Bxds classes
+        with other ``*Bxds`` classes
         """
         self.fd_ = None
         self.index_ = [] # for compatibility with RadBxds

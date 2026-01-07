@@ -45,7 +45,7 @@ PIK1ChannelSpec = collections.namedtuple("PIK1ChannelSpec",
                                          ['chanout','chan0in','scalef0',
                                           'chan1in','scalef1', 'burstnoise_chan0', 'burstnoise_chan1'],
                   defaults=(None,None) );
-"""
+PIK1ChannelSpec.__doc__ = """
 PIK1ChannelSpec Defines how an output channel is constructed from one or two input channels.
 
 Fields
@@ -175,10 +175,13 @@ def parse_channels(chanstr):
     """
     Parse a legacy-style channel specification into a list of PIK1ChannelSpec objects.
 
-    Supports two formats:
-    - An integer channel number (deprecated).
-    - A MATLAB-style semicolon-separated list of 5-column values,
-      e.g., "[1,1,1,0,0; 2,2,1,0,0]".
+    Notes
+    -----
+    Supported formats are:
+
+    1. An integer channel number (deprecated).
+    2. A MATLAB-style semicolon-separated list of 5-column values, e.g.:: 
+        "[1,1,1,0,0; 2,2,1,0,0]".
 
     Parameters
     ----------

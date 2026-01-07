@@ -2,6 +2,7 @@
 ===========
 
 .. automodule:: unfoc.write
+   :no-index:
 
    
    .. rubric:: Classes

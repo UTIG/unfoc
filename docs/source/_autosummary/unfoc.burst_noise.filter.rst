@@ -2,6 +2,7 @@
 =========================
 
 .. automodule:: unfoc.burst_noise.filter
+   :no-index:
 
    
    .. rubric:: Functions

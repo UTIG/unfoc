@@ -6,6 +6,23 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
+# --- Work around sphinx autodoc type-comment signature crash ---
+try:
+    from sphinx.ext.autodoc import type_comment as _tc
+
+    _real_update = _tc.update_annotations_using_type_comments
+
+    def _safe_update_annotations_using_type_comments(*args, **kwargs):
+        try:
+            return _real_update(*args, **kwargs)
+        except Exception:
+            return None
+
+    _tc.update_annotations_using_type_comments = _safe_update_annotations_using_type_comments
+except Exception:
+    pass
+# --------------------------------------------------------------
+
 project = 'unfoc'
 copyright = '2025, Gregory Ng'
 author = 'Gregory Ng'
@@ -38,6 +55,7 @@ autodoc_default_options = {
 napoleon_numpy_docstring = True
 napoleon_google_docstring = False
 numpydoc_show_class_members = False
+autodoc_typehints = "none"
 
 import os
 import sys
@@ -46,6 +64,7 @@ sys.path.insert(0, os.path.abspath('../../src'))
 
 templates_path = ['_templates']
 exclude_patterns = []
+html_extra_path = ["../dataflow"]
 
 
 

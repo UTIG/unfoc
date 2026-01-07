@@ -37,9 +37,9 @@ class BurstDenoiser:
     denoise(traces)
         Apply burst noise detection and suppression to 1D or 2D trace arrays.
 
-    TODO
-    ----
-        - Combine with the functional interface (`denoise_burst`)
+    Notes
+    -----
+        Todo: Combine with the functional interface (`denoise_burst`)
     """
     def __init__(self, median_size:Tuple[int,int], burst_widths: List[float], detect_thresholds:List[float]):
 
@@ -78,9 +78,9 @@ class BurstDenoiser:
         np.ndarray 
             Array of denoised traces with the same shape as input
         
-        TODO
-        ----
-            - Refactor to allow all median filters to be done at once
+        Notes
+        -----
+            Todo: Refactor to allow all median filters to be done at once
         """
         numpulses = 0
 
@@ -219,13 +219,13 @@ def detected_pulses(detection:np.array, gap:int=14):
         The minimum gap in detections to trigger a noncontiguous region.
 
     Yields
-    -------
+    ------
     tuple[int,int]
         A tuple of start and end indices for each detected pulse region.
 
-    TODO
-    ----
-        -Use median filter and make this shorter/quicker
+    Notes
+    -----
+        Todo: Use median filter and make this shorter/quicker
     """
     start_idx = None # first detection in this group
     prev_idx = None # previous detection index
@@ -276,9 +276,9 @@ def silence_burst(trace:np.array, roi:Tuple[int,int])->np.array:
     np.array
         Burst-suppressed segment.
 
-    TODO
-    ----
-        -Make a separate function that does a linear interpolation 
+    Notes
+    -----
+        Todo:Make a separate function that does a linear interpolation 
         rather than taking beginning and end
     """
     length = roi[1] - roi[0]
