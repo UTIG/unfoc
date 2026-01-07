@@ -67,6 +67,7 @@ This work has been supported by:
 
    installation
    usage_guide
+   package_design
    modules
 
 Indices and tables

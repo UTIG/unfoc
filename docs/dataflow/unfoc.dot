@@ -1,0 +1,59 @@
+// Graphviz diagram of how unfoc works
+// https://renenyffenegger.ch/notes/tools/Graphviz/examples/index
+
+digraph D {
+    size="10,7.5"
+
+    // Make the flow left-to-right (usually looks best for pipelines)
+    rankdir=LR
+
+    // Default formatting options
+    node [shape=box]
+
+    // Define node names, labels, and formatting
+    label  = "unfoc.py Data Flow"
+    labelloc = "t" // place the label at the top
+
+    subgraph cluster_in {
+        node [shape="ellipse"]
+        label="Input Files"
+        labelloc = "t"
+        bxds
+        ct
+    }
+
+    bxds -> read_RADnhx_gen
+    ct   -> read_RADnhx_gen
+
+    Trace1 [label="Trace"]
+    Trace2 [label="Trace\n(coherent stack)"]
+    Trace3 [label="Trace\n(dechirped)"]
+    Trace4 [label="IncoherentTrace"]
+
+    read_RADnhx_gen -> Trace1
+    Trace1 -> stacks_gen -> Trace2 -> denoise_and_dechirp_gen -> Trace3
+    Trace3 -> inco_stacks_gen -> Trace4
+
+    Trace4 -> PIK1Output
+
+    // invisible constraint solely for formatting
+    read_RADnhx_gen -> Trace4 [style="invis"]
+
+    subgraph cluster_out {
+        label="Output Files"
+        node [shape="ellipse"]
+        labelloc="b"
+
+        MagLoResIncoN
+        PhsLoResIncoN
+        MetaN
+        TraceNumbersN
+    }
+
+    MetaN [label="meta"]
+
+    PIK1Output -> MagLoResIncoN
+    PIK1Output -> PhsLoResIncoN
+    PIK1Output -> MetaN
+    PIK1Output -> TraceNumbersN
+}

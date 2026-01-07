@@ -2,7 +2,15 @@ Usage Guide
 ===========
 
 This guide demonstrates how to use the ``unfoc`` radar processing package, covering input formats,
-script-based usage, Python module usage, and step-by-step advanced usage with comments and examples.
+script-based usage, Python module usage, and step-by-step advanced usage with comments and examples.  
+
+.. only:: html
+
+   .. raw:: html
+
+      <figure class="align-center">
+        <img src="unfoc.svg" style="width: 100%;" alt="unfoc dataflow">
+      </figure>
 
 1. Input and Output Format
 --------------------------
@@ -17,6 +25,8 @@ Supported radar types include:
 * RADnh3
 * RADnh5
 * RADjh1 (``bxds1``, ``bxds2``)
+
+For radar channels details, please see :download:`multipol_data_format (PDF) <multipol_data_format.pdf>`.
 
 **Output:**
 
