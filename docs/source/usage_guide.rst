@@ -26,7 +26,7 @@ Supported radar types include:
 * RADnh5
 * RADjh1 (``bxds1``, ``bxds2``)
 
-For radar channels details, please see :download:`multipol_data_format (PDF) <multipol_data_format.pdf>`.
+For radar channel details, please see `multipol_data_format (PDF) <multipol_data_format.pdf>`_.
 
 **Output:**
 

@@ -68,7 +68,7 @@ autodoc_typehints = "none"
 
 templates_path = ['_templates']
 exclude_patterns = []
-html_extra_path = ["../dataflow"]
+html_extra_path = ["../dataflow", "multipol_data_format.pdf"]
 
 
 
