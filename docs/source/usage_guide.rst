@@ -38,8 +38,8 @@ The pulse-compressed outputs include:
 
 Each trace typically contains 3200 samples.
 
-2. Script and Python Usage
---------------------------
+2. Script Usage
+---------------
 
 You can invoke the processor directly from the command line or call it programmatically from Python.
 
@@ -59,7 +59,8 @@ To run each output channel on a separate core:
                  --stackdepth 10 --incodepth 5 \
                  --channels LoResInco1,LoResInco2 -j 2
 
-**Python API:**
+3. Python API
+-------------
 
 .. code-block:: python
 
@@ -71,7 +72,20 @@ To run each output channel on a separate core:
           stackdepth=10, incodepth=5,
           channels=channels, processes=2)
 
-3. Implementation of Unfocused Processing
+## Using readers for data ingest
+
+The `unfoc` module provides several ways to read raw radar data from
+the `RADnh3` and `RADnh5` data streams.
+
+The RadBxds class automatically detects `RADnh3` and `RADnh5` streams.
+A separate class `RADjh1Bxds` can be used with RADjh1 data.  At some point
+these classes will be combined to seamlessly detect data type.
+
+The `RadBxds` and `RADjh1Bxds` classes are the simplest to use, but
+they require some preprocessing to read the radargram.
+
+
+4. Implementation of Unfocused Processing
 -----------------------------------------------
 
 This section illustrates how the ``unfoc`` function works
@@ -99,6 +113,7 @@ The major parts within unfocused processing are
 
 
 .. code-block:: python
+
     from unfoc import RadBxds
     from unfoc import stack_coherent, chunks
     from unfoc import get_ref_chirp, get_hfilter, denoise_and_dechirp
