@@ -77,11 +77,11 @@ To run each output channel on a separate core:
 The `unfoc` module provides several ways to read raw radar data from
 the `RADnh3` and `RADnh5` data streams.
 
-The RadBxds class automatically detects `RADnh3` and `RADnh5` streams.
-A separate class `RADjh1Bxds` can be used with RADjh1 data.  At some point
+The :class:`~unfoc.read.RadBxds`  class automatically detects `RADnh3` and `RADnh5` streams.
+A separate class :class:`~unfoc.read.RADjh1Bxds` can be used with `RADjh1` data.  At some point
 these classes will be combined to seamlessly detect data type.
 
-The `RadBxds` and `RADjh1Bxds` classes are the simplest to use, but
+The :class:`~unfoc.read.RadBxds` and :class:`~unfoc.read.RADjh1Bxds` classes are the simplest to use, but
 they require some preprocessing to read the radargram.
 
 
