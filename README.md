@@ -16,7 +16,7 @@ into numpy as an array with timing metadata.
 - [Installation](docs/source/installation.rst)
 - [Package design](docs/source/package_design.rst)
 - [Modules](docs/source/modules.rst)
-- [Multipol Data Format Specification](docs/source/docs/source/multipol_data_format.pdf)
+- [Multipol Data Format Specification](docs/source/multipol_data_format.pdf)
 
 # Acknowledgments
 
