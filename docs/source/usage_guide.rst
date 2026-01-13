@@ -4,13 +4,11 @@ Usage Guide
 This guide demonstrates how to use the ``unfoc`` radar processing package, covering input formats,
 script-based usage, Python module usage, and step-by-step advanced usage with comments and examples.  
 
-.. only:: html
-
-   .. raw:: html
-
-      <figure class="align-center">
-        <img src="unfoc.svg" style="width: 100%;" alt="unfoc dataflow">
-      </figure>
+.. image:: ../dataflow/unfoc.svg
+   :alt: unfoc processing flowchart
+   :width: 95%
+   :align: center
+   :target: ../dataflow/unfoc.svg
 
 1. Input and Output Format
 --------------------------
