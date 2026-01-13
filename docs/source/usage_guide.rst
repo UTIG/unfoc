@@ -72,7 +72,7 @@ To run each output channel on a separate core:
           stackdepth=10, incodepth=5,
           channels=channels, processes=2)
 
-## Using readers for data ingest
+**Using readers for data ingest**
 
 The `unfoc` module provides several ways to read raw radar data from
 the `RADnh3` and `RADnh5` data streams.
