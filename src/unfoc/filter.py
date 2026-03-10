@@ -2,9 +2,14 @@
 
 
 """
-filtering operations for unfocused processing
+Filtering operations for unfocused processing
 
-Perform unfocused processing on a radar file
+Perform unfocused processing on a radar file,
+including coherent and incoherent stacking, burst noise suppression,
+dechirping, and phase/magnitude trace output.
+
+Main entry point:
+    - `unfoc`: Perform unfocused processing and save output traces.
 
 """
 
@@ -32,7 +37,8 @@ from .burst_noise import denoise_burst
 def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
           blanking, bandpass, scale=20000, output_phases=False, nmax=0, processes=1,
           denoise=None, buffering:int=-1):
-    """ Generate all requested output channels of unfoc data and write it to the
+    """ 
+    Generate all requested output channels of unfoc data and write it to the
     specified output directory with the standard file naming.
 
     The channels parameter is a string containing a comma-separated list
@@ -47,6 +53,38 @@ def unfoc(outdir, infile, channels, output_samples, stackdepth, incodepth,
     See unfoc_chan for other details on other input parameters.
 
     return value: None
+
+
+    Parameters
+    ----------
+    outdir : str
+        Output directory for writing processed radar traces.
+    infile : str
+        Path to the input `.bxds` radar data file.
+    channels : str or list of PIK1ChannelSpec
+        Specification of output channels. If a string, will be parsed via `get_utig_channels`.
+    output_samples : int
+        Number of output samples per trace.
+    stackdepth : int
+        Number of traces to stack coherently.
+    incodepth : int
+        Number of traces to stack incoherently.
+    blanking : int
+        Number of samples to blank in each trace.
+    bandpass : ndarray
+        Frequency bandpass for matched filtering.
+    scale : int, optional
+        Scale factor for output magnitude (default is 20000).
+    output_phases : bool, optional
+        Whether to also output phase information (default is False).
+    nmax : int, optional
+        Maximum number of output records to generate. Useful for testing (default is 0 = all).
+    processes : int, optional
+        Number of channels to process in parallel (default is 1).
+    denoise : str or None, optional
+        Denoising method. Use 'burst' for burst noise filtering (default is None).
+    buffering : int, optional
+        Buffering option passed to file readers (default is -1).
     """
 
     # pass through if this is a legacy ChannelSpec object
@@ -82,20 +120,39 @@ def unfoc_chan_(args):
 def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
           blanking, bandpass, scale=20000, output_phases=False, nmax=0, delay=0.,
           burst_noise=None, buffering:int=-1):
+    """
+    Generate one output channel of unfoc data.
 
-    """ Generate one output channel of unfoc data
-    outdir: output directory where data will be placed
-    infile: input bxds file
-    p1cs: channel specification for this output file (PIK1ChannelSpec object)
-    output_samples: number of output samples to place into the output file
-    stackdepth: coherent stacking depth
-    incodepth: incoherent stacking depth
-    blanking: samples to blank
-    scale: output magnitude scaling factor
-    output_phases: if true, also output phase data
-    nmax: max number of output samples to prcess, then quit (usually for testing).
-    burst_noise: 
-        parameters for burst noise correction
+    Parameters
+    ----------
+    outdir : str
+        Output directory where data will be placed.
+    infile : str
+        Input bxds file.
+    p1cs : PIK1ChannelSpec
+        Channel specification for this output file.
+    output_samples : int
+        Number of output samples to place into the output file.
+    stackdepth : int
+        Coherent stacking depth.
+    incodepth : int
+        Incoherent stacking depth.
+    blanking : int or slice or array-like
+        Samples to blank.
+    bandpass : bool
+        If True, apply bandpass; used to control interpolation choice.
+    scale : int, optional
+        Output magnitude scaling factor.
+    output_phases : bool, optional
+        If True, also output phase data.
+    nmax : int, optional
+        Max number of output records to process, then quit (usually for testing).
+    delay : float, optional
+        If > 0, sleep for this many seconds before starting (used for staggering jobs).
+    burst_noise : object, optional
+        Parameters for burst noise correction.
+    buffering : int, optional
+        Buffering setting passed to the reader setup.
 
     """
     if delay > 0:
@@ -143,7 +200,9 @@ def unfoc_chan(outdir, infile, p1cs, output_samples, stackdepth, incodepth,
 def unfoc_1m_chan(outdir, infile, chanout, output_samples, stackdepth, incodepth,
           blanking, bandpass, scale=20000, output_phases=False, nmax=0, buffering:int=-1):
 
-    """ Generate one output channel of unfoc 1-meter-spaced data
+    """ 
+    Generate one output channel of unfoc 1-meter-spaced data
+
     See unfoc_chan for parameters
 
     chanout: Output channel name -- used for setting output filename within outdir
@@ -166,8 +225,15 @@ def enable_burstnoise(p1cs: PIK1ChannelSpec):
     return p1cs
 
 def chunks(iterable, size=10, incomplete=False):
-    # https://stackoverflow.com/questions/24527006/\
-    # split-a-generator-into-chunks-without-pre-walking-it/24527424
+    """
+    Yield chunks of size `size` from `iterable`.
+
+    Notes
+    -----
+    - https://stackoverflow.com/questions/24527006/split-a-generator-into-chunks-without-pre-walking-it/24527424
+
+    """
+
     iterator = iter(iterable)
     for first in iterator:
         #yield itertools.chain([first], itertools.islice(iterator, size - 1))
@@ -179,11 +245,28 @@ def chunks(iterable, size=10, incomplete=False):
 
 
 def stack_coherent_chunk(coherent_chunk_gen, ct_type='mid', dtype=np.float64):
-    """ Stack a chunk of traces coherently
+    """ 
+    Coherent stacking of a chunk of traces
+
+    Stack a chunk of traces coherently 
     and return a Trace object, the number of records,
     and metadata from  the input traces
 
     ct_type can be any of 'mid' or 'all'
+
+    Parameters
+    ----------
+    coherent_chunk_gen : iterable of Trace
+        Input traces to stack.
+    ct_type : {'mid', 'all'}, optional
+        How to assign the output CT. Default is 'mid'.
+    dtype : dtype, optional
+        Output array data type. Default is float64.
+
+    Returns
+    -------
+    tuple
+        (stacked array, number of records, list of cts)
 
     """
     stacked = None
@@ -207,11 +290,29 @@ def stack_coherent_chunk(coherent_chunk_gen, ct_type='mid', dtype=np.float64):
 
 
 def stack_inco_chunk(inco_chunk_gen, channel, dtype=None, output_phases=False):
-    """ Incoherently stack.
+    """ 
+    Incoherently stacking.
+
     Calculate magnitude and track phase.
-    Return a summed magnitude trace,
-    a ct record,
+    Return a summed magnitude trace, a ct record,
     and if phase is requested, the phase in the center of the stack
+
+
+    Parameters
+    ----------
+    inco_chunk_gen : iterable of tuple
+        Iterable of (data, nrecs, ctinfos) tuples.
+    channel : int
+        Output channel number.
+    dtype : dtype or None, optional
+        Output data type. Default is None (auto).
+    output_phases : bool, optional
+        If True, also return phase from center trace.
+
+    Returns
+    -------
+    IncoherentTrace
+        Output trace with magnitude, ct, and optional phase.
     """
 
     magnitude = None
@@ -239,8 +340,12 @@ def stack_inco_chunk(inco_chunk_gen, channel, dtype=None, output_phases=False):
     return itrace
 
 def denoise_and_dechirp(coherent_data, *args, **kwargs):
-    """ Assumes that the input coherent_data has the same output parameter
-    structure as stack_coherent_chunk """
+    """ 
+    Apply dechirping and optional denoising to a coherent trace.
+
+    Assumes that the input coherent_data has the same output parameter
+    structure as stack_coherent_chunk 
+    """
     stacked, nrecs, ctinfos = coherent_data
     output_samples = kwargs['output_samples']
     dechirped = dechirp.denoise_and_dechirp(stacked[0:output_samples].astype(np.double, copy=False), *args, **kwargs)
@@ -249,7 +354,25 @@ def denoise_and_dechirp(coherent_data, *args, **kwargs):
 
 
 def setup_reader(bxdsfile, channel_specs, input_type=None, buffering:int=-1):
-    """ Return value: tuple(trace generator, output_tag) """
+    """ 
+    Auto-detect input type and return a trace generator and tag.
+
+    Parameters
+    ----------
+    bxdsfile : str
+        Path to input bxds file.
+    channel_specs : PIK1ChannelSpec
+        Channel specification.
+    input_type : str or None, optional
+        Input format (e.g., 'orig', 'S2_FIL'). Default is None (auto).
+    buffering : int, optional
+        Buffering size for file read. Default is -1.
+
+    Returns
+    -------
+    tuple
+        (trace generator, output tag)
+    """
     if input_type is None:
         # auto-detect input type
         if bxdsfile.endswith('.i'):
@@ -268,7 +391,24 @@ def setup_bxds_reader(bxdsfile, channel_specs, buffering:int):
     """
     Set up the generators for reading from a bxds file and producing
     pairwise-summed traces or individual unsummed traces
-    TODO: update PIK1ChannelSpec to have less redundant parameters since we
+
+    Parameters
+    ----------
+    bxdsfile : str
+        Path to bxds file.
+    channel_specs : PIK1ChannelSpec
+        Channel config including burstnoise and scaling.
+    buffering : int
+        Buffer size for reading traces.
+
+    Returns
+    -------
+    generator
+        Generator yielding Trace objects.
+            
+    Notes
+    -----
+    Todo: Update PIK1ChannelSpec to have less redundant parameters since we
     make these assertions here.
 
     """
@@ -302,6 +442,7 @@ def setup_bxds_reader(bxdsfile, channel_specs, buffering:int):
 
 
 def sum_traces(trace1, trace2, dtype=np.int32):
+    """Sum two traces element-wise and return a new Trace object"""
     data = trace1.data.astype(np.int32, copy=False) + \
            trace2.data.astype(np.int32, copy=False)
     return read.Trace(channel=-1, data=data, ct=trace1.ct)

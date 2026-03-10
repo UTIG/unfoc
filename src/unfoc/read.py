@@ -2,10 +2,7 @@
 
 
 """
-read.py
-
-This module provides functions and objects for reading UTIG
-radar data formats into numpy.
+Provides functions and objects for reading UTIG radar data formats into numpy.
 
 Possible input data formats include RADnh3/RADnh5 breakout data (e.g., HiCARS2, MARFA),
 as well as HiCARS1 (RADjh1).
@@ -76,6 +73,7 @@ HEADER_FORMATS = {
 
 
 def get_radar_stream(filename:str):
+    """ Determine the radar stream type from the file header """
     # type: (str) -> str
     # both RADnh3 and RADnh5 are the same first elements in header format
     # TODO: add support for detecting RADjh1
@@ -105,9 +103,22 @@ def get_radar_stream(filename:str):
 CT_t = namedtuple('CT', 'seq tim')
 CT_full_t = namedtuple('CT_full', 'prj set trn seq year mon day hour min sec hun tim')
 def gen_ct(bxdsfile, full=False):
-    """ Generate ct data from the ct file associated with bxdsfile
+    """ 
+    Generate ct data from the ct file associated with bxdsfile
+
     By default, we only return relevant information. We actually only want the seq and ct tim.
     If full is True, then return all fields.
+
+    Parameters
+    ----------
+    bxdsfile : str
+        The path to the bxds file for which we want to read the ct file.
+
+    Yields
+    ------
+    CT_t or CT_full_t
+        If full is False, yields CT_t with seq and tim.
+        If full is True, yields CT_full_t with all fields.
     """
     datadir = os.path.dirname(bxdsfile)
     ctfile1 = os.path.join(datadir, 'ct')
@@ -134,11 +145,29 @@ def gen_ct(bxdsfile, full=False):
 
 
 def get_radar_type(bxdsfile, nrecords=2000, stream=None):
-    """ Inspect a raw datafile and detect what type of radar it came from
+    """ 
+    Inspect a raw datafile and detect what type of radar it came from
+
     returns 'HiCARS2' if it is a 1-antenna radar, or 'MARFA' if it is a 2-antenna
     radar.
 
     Inspect a raw datafile and detect all of the channels in this file
+
+    Parameters
+    ----------
+    bxdsfile : str or Path
+        Path to the BXDS-formatted radar file.
+    nrecords : int, optional
+        Maximum number of records to inspect (default is 2000).
+    stream : file-like, optional
+        Optional binary file stream. If provided, bypasses re-opening the file.
+
+    Returns
+    -------
+    radar_type : str
+        One of 'HiCARS2', 'MARFA', or 'MPOL', indicating the inferred radar system.
+    channels : list of int
+        List of detected logical channels (offset-adjusted values).
     """
     wanted_channels = [0, 2, 4, 64, 64+2, 64+4]
     MAX_CHANNELS = len(wanted_channels)
@@ -168,16 +197,43 @@ def get_radar_type(bxdsfile, nrecords=2000, stream=None):
         return 'HiCARS2', chans
 
 def sync_radar_start(bxdsfile: str, nrecords:int=2000, stream=None):
-    """ Inspect a bxds file and figure out how many channels it has,
-    and what the first complete rseq number is.  This allows us to
-    make sure that all of the radar samples are synchronized between
-    channels 
+    """ 
+    Inspect a bxds file and figure out how many channels it has,
+    and what the first complete rseq number is.  
+    
+    This allows us to make sure that all of the radar samples are 
+    synchronized between channels 
 
     Return value:
         - The record number of this record in the bxds file
         - The file position in the bxds file
         - The rseq number
         - The number of unique channel offsets present in the bxds file
+
+    Parameters
+    ----------
+    bxdsfile : str
+        Path to the radar data file.
+    nrecords : int, optional
+        Max number of records to scan (default is 2000).
+    stream : str or None, optional
+        File format hint (e.g., 'RADnh3', 'RADnh5').
+
+    Returns
+    -------
+    record_index : int
+        Index of the first synchronized record.
+    file_position : int
+        File byte offset of the record.
+    rseq : int
+        Radar sequence number found across all channels.
+    nchan : int
+        Number of unique channels detected.
+
+    Raises
+    ------
+    ValueError
+        If no synchronized sequence is found.
     """
     # mapping of rseq number and the file position of that record
     rseq_to_fpos = defaultdict(list)
@@ -221,16 +277,37 @@ def sync_radar_start(bxdsfile: str, nrecords:int=2000, stream=None):
 
 
 def radar_index_summary(bxdsfile:str, stream=None):
-    """ Inspect bxds file to determine which records are complete (all digitizers present),
-    what type of stream it is (RADnh3 or RADnh5)
-    how many digitizers there are
-    what the first radar sequence number is
-    what the first radar sequence number that has all digitizer records
-    what the last radar sequence number is that has all digitizer records
-    and whether there are any radar sequence numbers that are missing digitizer records
-    and what they are
+    """ 
+    Inspect bxds file to determine which records are complete and what type of stream it is
 
-    Return a dictionary with this information
+    Scans the file to determine:
+    - File format (RADnh3 or RADnh5)
+    - Number of digitizer channels
+    - First radar sequence number
+    - First radar sequence number with complete records (all digitizer records present)
+    - Last radar sequence number with complete records
+    - Any radar sequence numbers that are missing digitizer records and what they are
+
+        Parameters
+    ----------
+    bxdsfile : str
+        Path to the BXDS radar data file.
+    stream : str or None, optional
+        Radar stream format. If None, inferred automatically.
+
+    Returns
+    -------
+    info : dict
+        Summary information with keys:
+        - 'filename' : str
+        - 'filesize' : int
+        - 'filemtime' : int (modification time)
+        - 'format' : str
+        - 'rseq_valid_range' : [int, int]
+        - 'valid_records' : int
+        - 'nsamples' : int
+        - 'nchan' : int
+        - 'incomplete_records' : dict[int, int]
     """
     p_bxdsfile = Path(bxdsfile)
     stat = p_bxdsfile.stat()
@@ -292,13 +369,37 @@ def radar_index_summary(bxdsfile:str, stream=None):
 def index_RADnhx_bxds(input_filename, stream=None, full_header=False, filepos:int=None,
                       buffering:int=-1):
     # type: (str) -> Generator[tuple]
-    """ Read the positions of packets within a RADnh3 and RADnh5 bxds file
-    and return these as a generator
+    """ 
+    Generator that yields positions of packets within a RADnh3 and RADnh5 bxds file
+    
     Routines can then use this to seek to the correct location in a file.
 
     if filepos is not None, seek to this file position before indexing
 
-    # TODO: rework this function to always return the full header and make
+    Parameters
+    ----------
+    input_filename : str
+        Path to the bxds radar data file.
+    stream : str or None, optional
+        Radar stream type ('RADnh3' or 'RADnh5'). Inferred if None.
+    full_header : bool, optional
+        If True, yield full header objects. If False (default), yield minimal info.
+    filepos : int, optional
+        File position to begin reading from.
+    buffering : int, optional
+        Buffering policy when opening the file (default -1: system default).
+
+    Yields
+    ------
+    tuple
+        If `full_header` is True:
+            (fpos, headerlen, header)
+        Else:
+            (fpos, headerlen, choff, nsamp)
+    
+    Notes
+    -----
+    Todo: Rework this function to always return the full header and make
     all callers grab the member methods
     """
 
@@ -358,8 +459,12 @@ def index_RADnhx_bxds(input_filename, stream=None, full_header=False, filepos:in
 
 def index_RADnhx_bxds_mmap_(input_filename, stream=None, full_header:bool=False):
     # type: (str) -> Generator[tuple]
-    """ Read the positions of packets within a RADnh3 and RADnh5 bxds file
+    """ 
+    Memory mapped version of index_RADnhx_bxds
+
+    Read the positions of packets within a RADnh3 and RADnh5 bxds file
     and return these as a generator
+
     Routines can then use this to seek to the correct location in a file.
 
     This version uses a slightly different syntax but it's functionally identical
@@ -413,13 +518,36 @@ def index_RADnhx_bxds_mmap_(input_filename, stream=None, full_header:bool=False)
 
 def read_RADnhx_gen(bxds_filename:str, channel:int, stream:str=None, filepos:int=None,
                     buffering:int=-1):
-    """ Return a sequence of traces from only one channel, from a bxds
+    """ 
+    Generator that yields a sequence of traces from only one channel in a bxds file
+    
     channel offset is a one-based index.
 
     Takes a bxds filename as an argument.
     Reads from this file and a ct file alongside it.
 
     filepos has the same meaning as in index_RADnhx_bxds
+
+    Parameters
+    ----------
+    bxds_filename : str
+        Path to the BXDS radar data file.
+    channel : int
+        1-based channel number to extract (must be ≥ 1).
+    stream : str or None, optional
+        Radar stream format ('RADnh3' or 'RADnh5'). Inferred if None.
+    filepos : int, optional
+        Byte offset to start reading from. Defaults to beginning of file.
+    buffering : int, optional
+        Buffering policy when opening the file (default is system default: -1).
+
+    Yields
+    ------
+    Trace
+        A `Trace` object containing:
+        - `channel` (int): the channel number
+        - `data` (np.ndarray): the raw radar trace
+        - `ct` (tuple): the corresponding CT metadata
 
     """
     assert 1 <= channel # one-based channel number
@@ -465,10 +593,37 @@ class RadBxdsIterator:
         return value
 
 class RadBxds:
-    """ Reader for random access to traces in a RADnh3 or RADnh5 bxds as numpy arrays
+    """ 
+    Reader for random access to traces in a RADnh3 or RADnh5 bxds as numpy arrays
+
     Future: add support for also auto-detecting RADjh1 bxds
     alternative name ideas:
     
+    Parameters
+    ----------
+    filename : str, optional
+        Path of the bxds file.
+    channel : int, optional
+        One-based radar channel number.
+    stream : str, optional
+        Radar stream type ('RADnh3' or 'RADnh5'). Inferred if None.
+    burstnoise : dict or None, optional
+        If provided, a dictionary of parameters to initialize burst noise filtering.
+    validonly : bool, default False
+        If True, include only records valid across all channels.
+    indexfile : str, optional
+        Path to a pre-generated index file to load for faster access.
+
+    Attributes
+    ----------
+    shape : tuple
+        Number of traces and number of samples per trace.
+    index_ : dict
+        Dictionary of file positions and headers keyed by channel offset.
+    cts_ : list
+        List of ct metadata associated with each trace.
+    burstnoise : BurstDenoiser or None
+        Optional burst noise filter.
     """
     def __init__(self, filename:str=None, channel:int=None, stream=None, burstnoise=None,
                  validonly=False, indexfile:str=None):
@@ -500,18 +655,28 @@ class RadBxds:
 
     def open(self, filename:str, channel:int, stream=None, burstnoise=None,
              validonly:bool=False, indexfile:str=None):
-        """ Open the bxds and load record index for bxds
+        """ 
+        Open the bxds and load record index for bxds
+
         This ignores sequence numbers and assumes that there are no
         out-of-order radar records within a channel.
         In theory we could sort the records by sequence number.
 
-        filename: bxds filename
-        channel: one-based radar channel number
-        stream: (optional) hint for stream type
-        burstnoise: if burstnoise is a dictionary, pass this to the burst noise calculation
-        validonly: If validonly is true (will become default in the future), then only return records
-        that are valid among all channels
-
+        
+        Parameters
+        ----------
+        filename : str, optional
+            Path of the bxds file.
+        channel : int, optional
+            One-based radar channel number.
+        stream : str, optional
+            Radar stream type.
+        burstnoise : dict or None, optional
+            If provided, a dictionary of parameters to initialize burst noise filtering.
+        validonly : bool, default False
+            If True, include only records valid across all channels.
+        indexfile : str, optional
+            Path to a pre-generated index file to load for faster access.
         """
 
         assert channel >= 1, "Channel parameter should be 1-based"
@@ -540,9 +705,7 @@ class RadBxds:
 
 
     def make_index(self, validonly:bool, stream:str=None):
-        """ Make index data from data in the file descriptor 
-        
-        """
+        """ Make index data from data in the file descriptor"""
         # save all the channels but in a dictionary of lists
         # then we can save this dictionary to the pickle file
         # or perhaps make it a memmap
@@ -601,7 +764,7 @@ class RadBxds:
                     self.index_[header.choff].append(item + (ii,))
 
     def save_index(self, indexfile:str):
-        """ Save the index data in self.index_ to a file to read later """
+        """ Save the index data in ``self.index_`` to a file to read later """
 
         with open(indexfile, 'wb') as fout:
             pickle.dump(dict(self.index_), fout)
@@ -635,9 +798,11 @@ class RadBxds:
 
 
     def __getitem__(self, idx):
-        """ Return data for selected radar records as an ndarray.
+        """ 
+        Return data for selected radar records as an ndarray.
 
         Records to return can be selected using slice notation
+
         Example:
         bxdsmm = RadBxds(bxdsfile, channel=2)
         # Get the 6th trace for channel 2
@@ -646,6 +811,16 @@ class RadBxds:
         traces = bxdsmm[5:10]
         # Return a portion of the array
         traces = bxdsmm[5:10, 200:400]
+
+        Parameters
+        ----------
+        idx : int, slice, or tuple
+            Indexing into the trace array. Supports slicing and slicing with time window.
+
+        Returns
+        -------
+        np.ndarray
+            Trace(s) as 1D or 2D NumPy arrays.
         """
         choff = self.channel0_ - (self.channel0_ & 1)
 
@@ -684,7 +859,10 @@ class RadBxds:
 
 
     def ct(self, idx):
-        """ Return a one or more ct values.  Supports slicing.
+        """ 
+        Return a one or more ct values.  Supports slicing.
+
+        Example:
         # Get the fourth ct seq/tim value
         one_ct = self.ct(3)
         # Get the fourth and fifth seq/tim values as a list
@@ -699,8 +877,32 @@ class RadBxds:
 
 
 class RadBxdsEx:
-    """ Combine one or more RADnh3/RADnh5 channels as specified in the channel spec.
-    (currently only supports combining two channels with summation)
+    """ 
+    Combine one or more RADnh3/RADnh5 channels as specified in the channel spec.
+
+    Currently only supports combining two channels with summation
+
+    Parameters
+    ----------
+    filename : str, optional
+        Path to the BXDS file.
+    channels : PIK1ChannelSpec
+        Specification of channels to load, including scaling factors and burst noise options.
+    stream : str, optional
+       bxds stream type ('RADnh3' or 'RADnh5').
+    dtype : str or numpy dtype, optional
+        Output data type. Defaults to '>i2' for single-channel or '>i4' for combined channels.
+    validonly : bool, default=True
+        Whether to include only valid records (those present across all digitizers).
+    bxds_class : class, default=RadBxds
+        Underlying class used to access individual channels.
+    indexfile : str, optional
+        Path to a prebuilt index file.
+    Notes
+    -----
+    - If both `scalef0` and `scalef1` are 1, the channels are summed.
+    - Only `chan0in` is used if `scalef1` is 0.
+    - Use `.ct()` to access ct metadata, and `.shape` or slicing for data
 
     """
     def __init__(self, filename:str=None, channels=None, stream=None,
@@ -834,15 +1036,39 @@ class RadBxdsEx:
         return self.rbxds0_.ct(idx)
 
 class RADjh1Bxds:
-    """ Reader for RADjh1 bxds.  This is really just a thin wrapper
-    around the numpy.memmap interface for parallelism with RadBxds.
+    """ 
+    Reader for RADjh1 bxds.  
+    
+    This is really just a thin wrapper around the numpy.memmap interface
+    for parallelism with RadBxds.
+    
     You might be better off just using np.memmap.
+    
+    Parameters
+    ----------
+    filename : str, optional
+        Path of the bxds file.
+    channel : int, optional
+        One-based channel number (1 or 2).
+    stream : str, optional
+        Unused; included for interface compatibility.
+    indexfile : str, optional
+        Unused; included for compatibility with RadBxds.
+
+    Notes
+    -----
+    - Internally uses `numpy.memmap` for efficient access.
+    - Assumes each trace is 3200 samples of 16-bit little-endian integers.
+    - Use `__getitem__`, slicing, or `ct()` to access data and CT metadata.
+    - Index saving/loading are no-ops.
+
+    Todo: Implemen iteration.   
     """
 
     def __init__(self, filename=None, channel=None, stream=None, indexfile:str=None):
         """ Initialize the reader to access one channel's records
         indexfile is not used but included for interface compatibility
-        with other *Bxds classes
+        with other ``*Bxds`` classes
         """
         self.fd_ = None
         self.index_ = [] # for compatibility with RadBxds
@@ -863,11 +1089,12 @@ class RADjh1Bxds:
             self.fd_ = None
 
     def open(self, filename:str, channel:int, stream=None):
-        """ Open the bxds and load record index for bxds
+        """ 
+        Open the bxds and load record index for bxds
+
         filename: bxds filename for low gain channel
         channel: one-based channel number
         stream: (optional) hint for stream type
-
         """
 
         assert channel in (1, 2), "RADjh1 only has channels 1 and 2"
@@ -931,6 +1158,8 @@ class RADjh1Bxds:
 
     def ct(self, idx):
         """ Return a one or more ct values.  Supports slicing.
+
+        Examples:
         # Get the fourth ct seq/tim value
         one_ct = self.ct(3)
         # Get the fourth and fifth seq/tim values as a list
@@ -955,10 +1184,31 @@ class RADjh1Bxds:
 def read_1m_gen(bxdsfile, channel, samples_per_trace=3200):
     """
     Set up the generator for reading from a S2_FIL bxdsN.i file
+
     Expects bxdsN.i to be an array of 2-byte little endian integers,
     typically 3200 samples per trace.
     If the file is not of the expected size, it raises an AssertionError
     Channel is currently required, but hypothetically you could figure it out from the bxdsfile filename.
+
+    Parameters
+    ----------
+    bxdsfile : str
+        Path of the bxdsa.
+    channel : int
+        Channel number to associate with each trace (required).
+    samples_per_trace : int, optional
+        Number of samples per trace (default: 3200).
+
+    Yields
+    ------
+    Trace
+        Trace object containing data and dummy CT info (tim=0, seq=index).
+
+    Raises
+    ------
+    AssertionError
+        If file size is not a multiple of 2 * samples_per_trace.
+
     """
     nbytes = os.path.getsize(bxdsfile)
     assert nbytes % (2*samples_per_trace) == 0

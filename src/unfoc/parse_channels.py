@@ -45,7 +45,26 @@ PIK1ChannelSpec = collections.namedtuple("PIK1ChannelSpec",
                                          ['chanout','chan0in','scalef0',
                                           'chan1in','scalef1', 'burstnoise_chan0', 'burstnoise_chan1'],
                   defaults=(None,None) );
+PIK1ChannelSpec.__doc__ = """
+PIK1ChannelSpec Defines how an output channel is constructed from one or two input channels.
 
+Fields
+------
+chanout : int
+    Output channel number (1-based).
+chan0in : int
+    First input channel number.
+scalef0 : float
+    Scale factor for first input channel (usually 1.0).
+chan1in : int
+    Second input channel number (0 if unused).
+scalef1 : float
+    Scale factor for second input channel (0 if unused).
+burstnoise_chan0 : dict or None
+    Burst noise suppression parameters for chan0in (optional).
+burstnoise_chan1 : dict or None
+    Burst noise suppression parameters for chan1in (optional).
+"""
 
 # Default parameters for burst noise on channel 6
 burstnoise6 = {
@@ -100,7 +119,10 @@ UTIG_CHANNELS['HERA'] = UTIG_CHANNELS['MARFA']
 UTIG_CHANNELS['MPOL'] = UTIG_CHANNELS['MARFA']
 
 def get_utig_channels(chanstr:str, radar:str='MARFA', input_channels:List[int]=None)->PIK1ChannelSpec:
-    """ Expects a comma-separated list of channels to produce. Case sensitive.
+    """ 
+    Return a list of PIK1ChannelSpec objects for the given radar and channel names.
+    
+    Expects a comma-separated list of channels to produce. Case sensitive.
     Radar is a string describing the radar data format.
     Recommend to use unfoc.py autodetect function (get_radar_type)
 
@@ -108,6 +130,27 @@ def get_utig_channels(chanstr:str, radar:str='MARFA', input_channels:List[int]=N
     raw data file. Output channels are filtered according to the
     available channels.
     Note that input_channels and Pik1ChannelSpec both use 1-based indexing.
+
+    Parameters
+    ----------
+    chanstr : str
+        Comma-separated list of channel names, eg "LoResInco1,LoResInco2".
+    radar : str, optional
+        Radar system name. One of 'MARFA', 'HiCARS2'.
+        Default is 'MARFA'.
+    input_channels : list of int, optional
+        List of available input channels (one-based). If provided,
+        channels not present in this list will be excluded.
+
+    Returns
+    -------
+    list of PIK1ChannelSpec
+        Channel configurations matching the requested output channels.
+
+    Raises
+    ------
+    AssertionError
+        If radar is not recognized in UTIG_CHANNELS.
 
     """
     list_config = [] # type: List[PIK1ChannelSpec]
@@ -129,6 +172,33 @@ def get_utig_channels(chanstr:str, radar:str='MARFA', input_channels:List[int]=N
     return list_config
 
 def parse_channels(chanstr):
+    """
+    Parse a legacy-style channel specification into a list of PIK1ChannelSpec objects.
+
+    Notes
+    -----
+    Supported formats are:
+
+    1. An integer channel number (deprecated).
+    2. A MATLAB-style semicolon-separated list of 5-column values, e.g.:: 
+        "[1,1,1,0,0; 2,2,1,0,0]".
+
+    Parameters
+    ----------
+    chanstr : int or str
+        Integer channel number or formatted string defining multiple channels.
+
+    Returns
+    -------
+    list of PIK1ChannelSpec
+        Parsed list of channel specifications.
+
+    Raises
+    ------
+    ValueError
+        If the string format is invalid (wrong number of values).
+    """
+
     # type: (Union[int, str]) -> List[PIK1ChannelSpec]
     try:
         # Assume it's a simple integer

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
 """
-Handler for writing unfoc output files
+Handler for writing unfoc output files: unfocused radar data products
+in the UTIG PIK1 format.
 
 The primary class in this module, PIK1Output, handles writing the
-collection of unfocused data products to a specified directory in
-the format and organization expected for PIK1 on the UTIG hierarchy.
+collection of unfocused data products (magnitude, phase, metadata,
+trace indices) to a specified directory in the format and organization
+expected for PIK1 on the UTIG hierarchy.
 
 """
 
@@ -32,14 +34,82 @@ IncoherentTrace = namedtuple('IncoherentTrace', 'channel magnitude phase ct')
 
 class PIK1Output:
     """
-    Outputs magnitude and phase information for NDArray that comes through.
-    Optionally computes the mean before writing
-    It can be used as a tee filter and tap output at any phase in the
-    processing stream.
+    Writer for incoherent radar data products in UTIG-compatible PIK1 format.
+
+    This class outputs unfocused magnitude and phase radar data along with metadata
+    and trace indices to a directory. Output files include `.meta`, `.tracenumbers`,
+    binary magnitude and optional phase files. Designed for use in radar data 
+    processing pipelines, and can act as a tee or tap in streaming architectures.
+
+    Parameters
+    ----------
+    input_filename : str
+        Path to the input file (used for metadata reference).
+    outdir : str
+        Output directory for all files.
+    channel : int
+        Channel number to include in output filenames.
+    magscale : int
+        Scaling factor applied to log-magnitude values.
+    stackdepth : int
+        Number of stacks per output record.
+    incodepth : int
+        Number of incoherent traces per stack.
+    do_phase : bool, optional
+        If True, writes phase output. Default is True.
+    do_index : bool, optional
+        If True, writes trace indices to the metadata file. Default is True.
+    tag : str, optional
+        Custom tag for output filenames. Default is 'LoResInco'.
+    loglevel : int, optional
+        Logging level (e.g., logging.INFO). Default is INFO.
+
+    Attributes
+    ----------
+    infile : str
+        Input file name used in metadata headers.
+    channel : int
+        Channel number for trace assignment.
+    magscale : int
+        Logarithmic magnitude scaling factor.
+    stackdepth : int
+        Number of stacks per output record.
+    incodepth : int
+        Number of incoherent traces per stack.
+    record_increment : int
+        Trace index increment between records.
+    record_idx : float
+        Current trace index to be written into metadata.
+    do_phase : bool
+        Whether to write phase output.
+    enable_meta_idx : bool
+        Whether to write trace indices into the metadata.
+    mag_fd, phs_fd, meta_fd, tracenumbers_fd : BinaryIO or None
+        File descriptors for output binary and text files.
+
+    Methods
+    -------
+    write_record(inco_trace)
+        Write magnitude, phase, and trace number for one incoherent trace.
+
+    close()
+        Close all file descriptors.
+
+    __enter__(), __exit__()
+        Context manager methods for safely using this class with `with` blocks.
+
     """
     def __init__(self, input_filename, outdir, channel, magscale,
                  stackdepth, incodepth, do_phase=True, do_index=True,
                  tag='LoResInco', loglevel=logging.INFO):
+        """
+        Initializes the PIK1Output writer and opens output file descriptors.
+
+        Opens all file descriptors and outputs the header for the metafile.
+        Having args input is ugly, but it contains vars not used anywhere
+        else in the class other than that header file.
+            
+        """
         # type: (str, int, int, int, int) -> None
         # File descriptors
         self.mag_fd = None # type: Optional[BinaryIO]
@@ -60,11 +130,7 @@ class PIK1Output:
         self.enable_meta_idx = do_index
 
         # type: (str, bool, bool) -> None
-        '''
-        Opens all file descriptors and outputs the header for the metafile.
-        Having args input is ugly, but it contains vars not used anywhere
-        else in the class other than that header file.
-        '''
+
         self.close()
 
         channel = self.channel
@@ -99,6 +165,23 @@ class PIK1Output:
 
 
     def write_record(self, inco_trace):
+        """
+        Write one incoherent trace to magnitude, phase, trace number, and metadata files.
+
+        Magnitude and phase arrays are scaled and saved as 4-byte big-endian integers.
+        Trace numbers (`ct.seq`) and optional metadata indices are written as text.
+
+        Parameters
+        ----------
+        inco_trace : IncoherentTrace
+            Named tuple with fields: channel (int), magnitude (ndarray),
+            phase (ndarray), and ct (object with `seq`).
+
+        Notes
+        -----
+        Output binary format: 4-byte big-endian integers (network byte order).
+        """
+
         # type: (IncoherentTrace) -> None
         # Write component files if enabled
         # output data type 4-byte big endian (network order)
@@ -121,6 +204,8 @@ class PIK1Output:
         self.close()
 
     def close(self):
+        """Close all output file descriptors, if open."""
+
         # type: () -> None
         # close file handles
         for fd in ('mag_fd', 'phs_fd', 'meta_fd', 'tracenumbers_fd'):
